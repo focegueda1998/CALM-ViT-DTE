@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-pvc
+spec:
+  storageClassName: rook-cephfs-tide
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi

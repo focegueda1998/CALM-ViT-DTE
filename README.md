@@ -1,93 +1,78 @@
-# hadoop-test
+# Hadoop Limited Environment For Docker and Kubernetes
 
+A test of a Hadoop Docker environment for use in deployment with Kubernetes, built from an Ubuntu image (https://hub.docker.com/_/ubuntu). This is not to be confused with the official Hadoop Docker image (https://hub.docker.com/r/apache/hadoop).
 
+# Recommended Reading
 
-## Getting started
+Please refer to the following tutorials before setting up Hadoop:
+    
+    - National Research Platform UserDocs (https://docs.nationalresearchplatform.org/userdocs/start/quickstart/):
+        
+        - Introduction:
+        
+            - Quickstart
+        
+        - Tutorials:
+            
+            - Docker and containers
+            
+            - Basic Kubernetes
+    
+    - Apache Hadoop Docs (https://hadoop.apache.org/docs/current/)
+            
+Usage of the NRP is not strictly necessary for this set up to work; deployment of these Pods will follow a similar process across other providers. If you wish to use these services, 
+please refer to their 'Policies' (https://docs.nationalresearchplatform.org/userdocs/start/policies/) and 'Get Access' 
+(https://docs.nationalresearchplatform.org/userdocs/start/get-access/) pages.
+            
+# Included
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+A primary image is used to create each Hadoop container; its image may be pulled here: ' gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/hadoop '. The 'core-site.xml',
+'hdfs-site.xml', 'mapred-site.xml', 'yarn-site.xml', and 'hadoop-env.sh' files are already configured. You may find them under '$HADOOP_HOME/etc/hadoop' directory in your container.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+/Kubernetes-Yaml-Files/ includes .yaml file configurations that start up each component separately:
 
-## Add your files
+    - service.yaml: Defines headless 'hadoop' service that exposes required ports for container communication.
+    
+    - pv.yaml: Defines a Persistent Volume in 'ReadWriteMany' to be shared between Pods. Do not use if you do not have control over the creation of Volumes.
+    
+    - pvc.yaml: Defines a Persistent Volume Claim in 'ReadWriteMany'to be shared between pods. This creates a temporary volume inside of the node. Nodes may configured to automatically
+      claim storage from a remote destination; see the 'storageClassName' attribute inside the file. Any other storage options must use 'ReadWriteMany' in order to be shared between
+      Pods; see https://docs.nationalresearchplatform.org/userdocs/storage/intro/.
+      
+    - master-pod.yaml: Defines the 'master' Hadoop container instance. This is where the primary NameNode is created and configured. It uses Bash commands to perform the initialization, so
+      feel free to modify them.
+      
+    - slave01-pod.yaml: Defines the 'slave01' Hadoop container instance. This is where the secondary NameNode located.
+    
+    - slave02-pod.yaml: Defines the 'slave02' Hadoop container instance.
+    
+# Setting Up Pods
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+1. Ensure that kubectl is configured and the namespace is set. You may need to use 'export KUBECONFIG=$HOME/.kube/config.yaml' for kubectl to work properly.
+    
+2. Navigate to ' hadoop-test/Kubernetes-Yaml-Files/ ' directory in your command line.
 
-```
-cd existing_repo
-git remote add origin https://gitlab.nrp-nautilus.io/focegueda/hadoop-test.git
-git branch -M main
-git push -uf origin main
-```
+3. Use ' kubectl apply -f example.yaml ' to apply the configuration to Kubernetes. This command can use multiple files at once. A quick option would use:
+    
+    - ' kubectl apply -f service.yaml -f pvc.yaml -f slave01-pod.yaml -f slave02-pod.yaml -f master-pod.yaml '
+    
+4. Use ' kubectl get pods ' to see the status of your pod deployment. Also, use ' kubectl get pvcs' and ' kubectl get services ' to check the status of the other components.
 
-## Integrate with your tools
+    - If you are seeing problems with you deployment, you may use ' kubectl describe {component}' to check for any errors.
 
-- [ ] [Set up project integrations](https://gitlab.nrp-nautilus.io/focegueda/hadoop-test/-/settings/integrations)
+5. If each component is working properly, you may access the master container's shell with ' kubectl exec -it master -- /bin/bash/ '.
 
-## Collaborate with your team
+    - This master server can access the other containers through SSH with ' ssh {hostname} '. For example, you may connect to each container with ' ssh slave01 ' and ' ssh slave02 '.
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+6. Type ' jps ' in the command line to see that all the Hadoop Components are running, then ' hdfs dfsadmin -report ' to verify each component is connected.
 
-## Test and Deploy
+7. Use ' exit ' to leave the container shell.
 
-Use the built-in continuous integration in GitLab.
+# Shutting Down Pods
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Shutting down pods can be done with ' kubectl delete -f example.yaml ', and can also be chained like the ' apply ' command. Be aware that deleting your Pods & PVC will cause all data to be lost due to the stateless nature of Pods. I am currently exploring options to work around this.
 
-***
+# Other Acknowledgments
 
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+These containers are freely open within a namespace; please be careful where you are deploying your Pods. If you plan on deploying withing a public namespace, recommendation would be to
+pull the latest image from the repository, create a user account within the image, and modify the ssh passkeys. There is no easy way to do this during setup as of now.
