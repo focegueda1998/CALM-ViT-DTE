@@ -74,5 +74,5 @@ Shutting down pods can be done with ' kubectl delete -f example.yaml ', and can 
 
 # Other Acknowledgments
 
-These containers are freely open within a namespace; please be careful where you are deploying your Pods. If you plan on deploying withing a public namespace, recommendation would be to
+These containers are freely open within a namespace; please be careful where you are deploying your Pods. If you plan on deploying within a public namespace, recommendation would be to
 pull the latest image from the repository, create a user account within the image, and modify the ssh passkeys. There is no easy way to do this during setup as of now.
