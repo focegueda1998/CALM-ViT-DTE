@@ -5,6 +5,9 @@ metadata:
   labels:
     app: hadoop
 spec:
+  nodeSelector:
+    topology.kubernetes.io/region: us-west
+    topology.kubernetes.io/zone: fullerton
   volumes:
   - name: config-volume
     persistentVolumeClaim:
