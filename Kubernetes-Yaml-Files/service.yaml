@@ -23,3 +23,19 @@ spec:
     protocol: TCP
     port: 9870
     targetPort: 9870
+  - name: hdfs
+    protocol: TCP
+    port: 9000
+    targetPort: 9000
+  - name: datanode2
+    protocol: TCP
+    port: 9868
+    targetPort: 9868
+  - name: resourcemanager
+    protocol: TCP
+    port: 10020
+    targetPort: 10020
+  - name: historyserver
+    protocol: TCP
+    port: 19888
+    targetPort: 19888

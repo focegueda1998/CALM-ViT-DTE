@@ -32,8 +32,30 @@ spec:
         memory: 2Gi
         cpu: 1000m
     ports:
+    - containerPort: 8088
+      hostPort: 8088
+      protocol: TCP
     - containerPort: 9864
+      hostPort: 9864
+      protocol: TCP
+    - containerPort: 9000
+      hostPort: 9000
+      protocol: TCP
+    - containerPort: 9870
+      hostPort: 9870
+      protocol: TCP
     - containerPort: 8042
+      hostPort: 8042
+      protocol: TCP
+    - containerPort: 9868
+      hostPort: 9868
+      protocol: TCP
+    - containerPort: 10020
+      hostPort: 10020
+      protocol: TCP
+    - containerPort: 19888
+      hostPort: 19888
+      protocol: TCP
     volumeMounts:
     - name: config-volume
       mountPath: /config

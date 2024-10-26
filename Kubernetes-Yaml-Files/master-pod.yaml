@@ -33,9 +33,29 @@ spec:
         cpu: 1000m
     ports:
     - containerPort: 8088
+      hostPort: 8088
+      protocol: TCP
     - containerPort: 9864
+      hostPort: 9864
+      protocol: TCP
+    - containerPort: 9000
+      hostPort: 9000
+      protocol: TCP
     - containerPort: 9870
+      hostPort: 9870
+      protocol: TCP
     - containerPort: 8042
+      hostPort: 8042
+      protocol: TCP
+    - containerPort: 9868
+      hostPort: 9868
+      protocol: TCP
+    - containerPort: 10020
+      hostPort: 10020
+      protocol: TCP
+    - containerPort: 19888
+      hostPort: 19888
+      protocol: TCP
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -47,8 +67,10 @@ spec:
        echo 'Fetching node IPs and updating /etc/hosts'; \
        export SLAVE01_IP=$(cat /config/slave01_ip); \
        export SLAVE02_IP=$(cat /config/slave02_ip); \
+       export NATIVE_PC_IP=47.153.82.217; \
        echo $SLAVE01_IP slave01 >> /etc/hosts; \
        echo $SLAVE02_IP slave02 >> /etc/hosts; \
+       echo $NATIVE_PC_IP native >> /etc/hosts; \
        echo 'Updated /etc/hosts'; \
        echo 'master\nslave01\nslave02' > $HADOOP_HOME/etc/hadoop/workers; \
        echo 'Starting HDFS and YARN'; \
