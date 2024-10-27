@@ -67,7 +67,6 @@ spec:
        echo 'Fetching node IPs and updating /etc/hosts'; \
        export SLAVE01_IP=$(cat /config/slave01_ip); \
        export SLAVE02_IP=$(cat /config/slave02_ip); \
-       export NATIVE_PC_IP=47.153.82.217; \
        echo $SLAVE01_IP slave01 >> /etc/hosts; \
        echo $SLAVE02_IP slave02 >> /etc/hosts; \
        echo $NATIVE_PC_IP native >> /etc/hosts; \
