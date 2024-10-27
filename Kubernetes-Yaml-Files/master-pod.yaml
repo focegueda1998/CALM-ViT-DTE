@@ -69,7 +69,6 @@ spec:
        export SLAVE02_IP=$(cat /config/slave02_ip); \
        echo $SLAVE01_IP slave01 >> /etc/hosts; \
        echo $SLAVE02_IP slave02 >> /etc/hosts; \
-       echo $NATIVE_PC_IP native >> /etc/hosts; \
        echo 'Updated /etc/hosts'; \
        echo 'master\nslave01\nslave02' > $HADOOP_HOME/etc/hadoop/workers; \
        echo 'Starting HDFS and YARN'; \
