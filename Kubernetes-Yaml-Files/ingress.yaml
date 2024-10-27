@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    ingressClassName: haproxy
+  name: test-ingress
+spec:
+  rules:
+  - host: hadoop-test.nrp-nautilus.io
+    http:
+      paths:
+      - backend:
+          service:
+            name: hadoop
+            port:
+              number: 8088
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - hadoop-test.nrp-nautilus.io

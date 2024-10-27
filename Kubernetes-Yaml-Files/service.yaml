@@ -2,10 +2,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hadoop
+  labels:
+    k8s-app: hadoop
 spec:
-  clusterIP: None
   selector:
-    app: hadoop
+    k8s-app: hadoop
   ports:
   - name: nodemanager
     protocol: TCP
@@ -39,3 +40,5 @@ spec:
     protocol: TCP
     port: 19888
     targetPort: 19888
+  type: ClusterIP
+  clusterIP: None

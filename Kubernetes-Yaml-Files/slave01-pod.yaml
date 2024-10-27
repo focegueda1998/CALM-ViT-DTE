@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: slave01
   labels:
-    app: hadoop
+    k8s-app: hadoop
 spec:
   nodeSelector:
     topology.kubernetes.io/region: us-west

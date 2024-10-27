@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: slave02
   labels:
-    app: hadoop
+    k8s-app: hadoop
 spec:
   nodeSelector:
     topology.kubernetes.io/region: us-west
@@ -67,7 +67,7 @@ spec:
        export MASTER_IP=$(cat /config/master_ip); \
        export SLAVE01_IP=$(cat /config/slave01_ip); \
        echo $MASTER_IP master >> /etc/hosts; \
-       echo $SLAVE01_IP slave01 >> /etc/hosts; \
+       echo $SLAVE01_IP slave01 >> /etappc/hosts; \
        echo 'Updated /etc/hosts'; \
        echo 'awaiting for master to start'; \
        while ! nc -z master 9870; do sleep 3; done; \
