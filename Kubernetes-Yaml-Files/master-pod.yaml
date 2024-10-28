@@ -23,7 +23,7 @@ spec:
       mountPath: /config
   containers:
   - name: master
-    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/hadoop:latest"
+    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test"
     resources:
       limits:
         memory: 2Gi
@@ -65,8 +65,10 @@ spec:
        source ~/.bashrc; \
        sleep 30; \
        echo 'Fetching node IPs and updating /etc/hosts'; \
+       export MASTER_IP=$(hostname -i); \
        export SLAVE01_IP=$(cat /config/slave01_ip); \
        export SLAVE02_IP=$(cat /config/slave02_ip); \
+       echo $MASTER_IP master >> /etc/hosts; \
        echo $SLAVE01_IP slave01 >> /etc/hosts; \
        echo $SLAVE02_IP slave02 >> /etc/hosts; \
        echo 'Updated /etc/hosts'; \

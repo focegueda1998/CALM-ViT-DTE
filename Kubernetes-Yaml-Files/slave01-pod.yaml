@@ -23,7 +23,7 @@ spec:
       mountPath: /config
   containers:
   - name: slave01
-    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/hadoop:latest"
+    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test"
     resources:
       limits:
         memory: 2Gi
