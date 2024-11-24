@@ -5,6 +5,15 @@ metadata:
   labels:
     k8s-app: hadoop
 spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: nvidia.com/gpu.product
+            operator: In
+            values:
+            - NVIDIA-L4
   nodeSelector:
     topology.kubernetes.io/region: us-west
     topology.kubernetes.io/zone: fullerton
@@ -23,14 +32,16 @@ spec:
       mountPath: /config
   containers:
   - name: slave01
-    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test"
+    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/pysparktorch:latest"
     resources:
       limits:
-        memory: 2Gi
-        cpu: 1000m
+        memory: 24Gi
+        cpu: 10000m
+        nvidia.com/gpu: 1
       requests:
-        memory: 2Gi
-        cpu: 1000m
+        memory: 24Gi
+        cpu: 10000m
+        nvidia.com/gpu: 1
     ports:
     - containerPort: 8088
       hostPort: 8088
@@ -56,12 +67,44 @@ spec:
     - containerPort: 19888
       hostPort: 19888
       protocol: TCP
+    - containerPort: 4040
+      hostPort: 4040
+      protocol: TCP
+    - containerPort: 7077
+      hostPort: 7077
+      protocol: TCP
+    - containerPort: 7078
+      hostPort: 7078
+      protocol: TCP
+    - containerPort: 8080
+      hostPort: 8080
+      protocol: TCP
+    - containerPort: 8081
+      hostPort: 8081
+      protocol: TCP
     volumeMounts:
     - name: config-volume
       mountPath: /config
     command: ["bash", "-c"]
     args: [
-      "source ~/.bashrc; \
+      "echo 'Reloading bashrc'; \
+       . /root/.bashrc; \
+       . /etc/profile; \
+       /usr/sbin/sshd; \
+       echo 'Checking for NVIDIA devices'; \
+       for i in $(nvidia-smi --query-gpu=index --format=csv,noheader); do \
+         nvidia-smi -c EXCLUSIVE_PROCESS -i $i; \
+       done; \
+       if ls /dev | grep -q 'nvidia[0-9]*'; then \
+         
+         echo 'NVIDIA devices found, appending configuration to container-executor.cfg'; \
+         echo '[docker]' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+          echo \"docker.allowed.devices=/dev/nvidia-uvm,/dev/nvidia-uvm-tools,$(ls /dev | grep 'nvidia[0-9]*' | tr '\n' ',' | sed 's/,$//'),/dev/nvidiactl\" >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+         echo 'docker.allowed.ro-mounts=nvidia_driver_550.127.05' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+         echo 'docker.allowed.runtimes=nvidia' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+       else \
+         echo 'NVIDIA devices not found'; \
+       fi; \
        sleep 30; \
        echo 'Fetching node IPs and updating /etc/hosts'; \
        export MASTER_IP=$(cat /config/master_ip); \

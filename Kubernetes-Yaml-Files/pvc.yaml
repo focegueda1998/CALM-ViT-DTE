@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: shared-pvc
 spec:
-  storageClassName: rook-cephfs-tide
+  storageClassName: rook-cephfs-fullerton
   accessModes:
     - ReadWriteMany
   resources:

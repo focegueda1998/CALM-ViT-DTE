@@ -40,5 +40,25 @@ spec:
     protocol: TCP
     port: 19888
     targetPort: 19888
+  - name: spark-ui
+    protocol: TCP
+    port: 4040
+    targetPort: 4040
+  - name: spark-master
+    protocol: TCP
+    port: 7077
+    targetPort: 7077
+  - name: spark-worker
+    protocol: TCP
+    port: 7078
+    targetPort: 7078
+  - name: spark-webui
+    protocol: TCP
+    port: 8080
+    targetPort: 8080
+  - name: spark-history
+    protocol: TCP
+    port: 8081
+    targetPort: 8081
   type: ClusterIP
   clusterIP: None
