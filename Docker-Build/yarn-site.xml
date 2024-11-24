@@ -1,0 +1,122 @@
+<?xml version="1.0"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+<configuration>
+<!-- Site specific YARN configuration properties -->
+    <property>
+        <name>yarn.nodemanager.local-dirs</name>
+        <value>/var/hadoop/yarn/local</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.log-dirs</name>
+        <value>/var/hadoop/yarn/logs</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.aux-services</name>
+        <value>mapreduce_shuffle</value>
+    </property>
+    <property>
+        <name>yarn.resourcemanager.hostname</name>
+        <value>master</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.pmem-check-enabled</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.vmem-check-enabled</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>yarn.log-aggregation-enable</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>yarn.log.server.url</name>
+        <value>http://master:19888/jobhistory/logs</value>
+    </property>
+    <property>
+        <name>yarn.log-aggregation.retain-seconds</name>
+        <value>604800</value>
+    </property>
+    <property>
+        <name>yarn.resource-types</name>
+        <value>yarn.io/gpu</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.resource-plugins</name>
+        <value>yarn.io/gpu</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.resource-plugins.gpu.allowed-gpu-devices</name>
+        <value>auto</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.resource-plugins.gpu.path-to-discovery-executables</name>
+        <value>/usr/bin</value>
+    </property>
+    <!-- Yarn Resource configuration, May need to play around with these incase our container
+    cannot properly allocate resoureces-->
+    <!--
+    <property>
+        <name>yarn.nodemanager.resource.memory-mb</name>
+        <value>2048</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.maximum-allocation-mb</name>
+        <value>2048</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.resource.cpu-vcores</name>
+        <value>2</value>
+    </property>
+    <property>
+        <name>yarn.scheduler.maximum-allocation-vcores</name>
+        <value>2</value>
+    </property>
+    -->
+    <!-- CGroups configuration, Broken for now since Yarn on Ubuntu 24.04 does not support 
+         cgroupsv2 for GPU isolation, make sure GPU is set with EXCLUSIVE_PROCESS mode:
+         ' nvidia-smi -c EXCLUSIVE_PROCESS -i $index '' -->
+    <!--
+    <property>
+        <name>yarn.nodemanager.linux-container-executor.cgroups.mount</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.linux-container-executor.cgroups.mount-path</name>
+        <value>/sys/fs/cgroup</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.linux-container-executor.cgroups.hierarchy</name>
+        <value>yarn</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.container-executor.class</name>
+        <value>org.apache.hadoop.yarn.server.nodemanager.LinuxContainerExecutor</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.linux-container-executor.group</name>
+        <value>yarn</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.linux-container-executor.cgroups.v2.enabled</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>yarn.nodemanager.linux-container-executor.cgroups.v2.mount-path</name>
+        <value>/sys/fs/cgroup</value>
+    </property>
+    -->
+ </configuration>
