@@ -1,8 +1,17 @@
+# Ubuntu 22.04 with CUDA 12.4.1 and cuDNN 8.2.4,
+# Would have used 24.04 but there is some minor issues with the nvidia/cuda image.
+# You may choose to use a different base image at your own discretion; just be aware
+# this Dockerfile is built specifically for: nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04.
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Copy Hadoop and Spark tarballs to /usr/local/
+# You may replace these with your desired version.
+# Original sources for each version in the sources.txt file.
+# Make sure to download each source and place them in the same directory as the Dockerfile.
+# Ensure that the Spark version is compatible with the RAPIDS plugin version if you plan on
+# using a different version Spark.
 COPY hadoop-3.4.0.tar.gz /usr/local/
 COPY spark-3.5.2-bin-hadoop3-scala2.13.tgz /usr/local/
 
@@ -22,6 +31,8 @@ RUN apt-get update && \
     cd /usr/lib/spark/scripts/gpu/ && \
     wget https://raw.githubusercontent.com/apache/spark/master/examples/src/main/scripts/getGpusResources.sh && \
     chmod a+rwx -R /usr/lib/spark/scripts/gpu/ && \
+    # Install Hadoop and Spark
+    # If you want to use a different version, replace the tarballs and the paths below.
     tar -zxvf /usr/local/hadoop-3.4.0.tar.gz -C /usr/local/ && \
     tar -zxvf /usr/local/spark-3.5.2-bin-hadoop3-scala2.13.tgz -C /usr/local/ && \
     mv /usr/local/spark-3.5.2-bin-hadoop3-scala2.13 /usr/local/spark && \
@@ -45,6 +56,8 @@ RUN apt-get update && \
     chmod a+rwx -R /var/hadoop/yarn/local && \
     chmod a+rwx -R /var/hadoop/yarn/logs && \
     curl -fL https://github.com/coursier/coursier/releases/latest/download/cs-x86_64-pc-linux.gz | gzip -d > cs && chmod +x cs && ./cs setup -y && \
+    # Make note of these as they will be used in the environment setup, and overall make navigating the container easier.
+    # You may change these to your desired paths.
     echo "/etc/init.d/ssh start" >> /root/.bashrc && \
     echo "export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64/" >> /root/.bashrc && \
     echo "export PATH=\$PATH:\$JAVA_HOME/bin:/root/.local/share/coursier/bin:/usr/local/miniconda3/bin" >> /root/.bashrc && \
@@ -59,9 +72,12 @@ RUN apt-get update && \
     echo "export SPARK_RAPIDS_PLUGIN_JAR=\${SPARK_RAPIDS_DIR}/rapids-4-spark_2.13-24.10.1.jar"  >> /etc/profile && \
     . /etc/profile && \
     . /root/.bashrc && \
+    # May need to change the version of Scala based on your Spark Installation
     cs install scala:2.13.15 scalac:2.13.15
 
 # Copy Hadoop configuration files
+# You may replace the contents of each file with your desired configuration.
+# Make sure to place these files according to your Hadoop installation.
 COPY core-site.xml /usr/local/hadoop-3.4.0/etc/hadoop/
 COPY hdfs-site.xml /usr/local/hadoop-3.4.0/etc/hadoop/
 COPY mapred-site.xml /usr/local/hadoop-3.4.0/etc/hadoop/
@@ -72,12 +88,16 @@ COPY container-executor.cfg /usr/local/hadoop-3.4.0/etc/hadoop/
 COPY workers /usr/local/hadoop-3.4.0/etc/hadoop/
 
 # Copy Spark configuration files
+# You may replace the contents of each file with your desired configuration.
+# Shouln't need to change much here since the Spark path will always be the same.
 COPY spark-defaults.conf /usr/local/spark/conf/
 COPY spark-env.sh /usr/local/spark/conf/
 COPY log4j2.properties /usr/local/spark/conf/
 COPY workers /usr/local/spark/conf/
 
 # Copy RAPIDS plugin and GPU resources script
+# You may replace the jar file with your desired version,
+# but ensure that the jar file is compatible with your Spark version.
 COPY rapids-4-spark_2.13-24.10.1.jar /opt/sparkRapidsPlugin/
 COPY getGpusResources.sh /opt/sparkRapidsPlugin/
 
