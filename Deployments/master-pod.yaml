@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: master
+  labels:
+    k8s-app: hadoop
+spec:
+  affinity:
+   nodeAffinity:
+     requiredDuringSchedulingIgnoredDuringExecution:
+       nodeSelectorTerms:
+       - matchExpressions:
+         - key: nvidia.com/gpu.product
+           operator: In
+           values:
+           - NVIDIA-L4
+  nodeSelector:
+    topology.kubernetes.io/region: us-west
+    topology.kubernetes.io/zone: fullerton
+  volumes:
+  - name: config-volume
+    persistentVolumeClaim:
+      claimName: shared-pvc
+  initContainers:
+  - name: init-dns
+    image: busybox
+    command: ["sh", "-c"]
+    args:
+      - "echo $(hostname -i) > /config/master_ip"
+    volumeMounts:
+    - name: config-volume
+      mountPath: /config
+  containers:
+  - name: master
+    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/pysparktorch:latest"
+    resources:
+      limits:
+        memory: 24Gi
+        cpu: 10000m
+        nvidia.com/gpu: 1
+      requests:
+        memory: 24Gi
+        cpu: 10000m
+        nvidia.com/gpu: 1
+    ports:
+    - containerPort: 8088
+      hostPort: 8088
+      protocol: TCP
+    - containerPort: 9864
+      hostPort: 9864
+      protocol: TCP
+    - containerPort: 9000
+      hostPort: 9000
+      protocol: TCP
+    - containerPort: 9870
+      hostPort: 9870
+      protocol: TCP
+    - containerPort: 8042
+      hostPort: 8042
+      protocol: TCP
+    - containerPort: 9868
+      hostPort: 9868
+      protocol: TCP
+    - containerPort: 10020
+      hostPort: 10020
+      protocol: TCP
+    - containerPort: 19888
+      hostPort: 19888
+      protocol: TCP
+    - containerPort: 4040
+      hostPort: 4040
+      protocol: TCP
+    - containerPort: 7077
+      hostPort: 7077
+      protocol: TCP
+    - containerPort: 7078
+      hostPort: 7078
+      protocol: TCP
+    - containerPort: 8080
+      hostPort: 8080
+      protocol: TCP
+    - containerPort: 8081
+      hostPort: 8081
+      protocol: TCP
+    volumeMounts:
+    - name: config-volume
+      mountPath: /config
+    command: ["bash", "-c"]
+    args: [
+      "apt-get install unzip -y; \
+       echo 'Reloading bashrc'; \
+       . /root/.bashrc; \
+       . /etc/profile; \
+       /usr/sbin/sshd; \
+       echo 'Checking for NVIDIA devices'; \
+       for i in $(nvidia-smi --query-gpu=index --format=csv,noheader); do \
+         nvidia-smi -c EXCLUSIVE_PROCESS -i $i; \
+       done; \
+       if ls /dev | grep -q 'nvidia[0-9]*'; then \
+         echo 'NVIDIA devices found, appending configuration to container-executor.cfg'; \
+         echo '[docker]' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+          echo \"docker.allowed.devices=/dev/nvidia-uvm,/dev/nvidia-uvm-tools,$(ls /dev | grep 'nvidia[0-9]*' | tr '\n' ',' | sed 's/,$//'),/dev/nvidiactl\" >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+         echo 'docker.allowed.ro-mounts=nvidia_driver_550.127.05' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+         echo 'docker.allowed.runtimes=nvidia' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+       else \
+         echo 'NVIDIA devices not found'; \
+       fi; \
+       sleep 30; \
+       echo 'Fetching node IPs and updating /etc/hosts'; \
+       export MASTER_IP=$(hostname -i); \
+       export SLAVE01_IP=$(cat /config/slave01_ip); \
+       export SLAVE02_IP=$(cat /config/slave02_ip); \
+       echo $MASTER_IP master >> /etc/hosts; \
+       echo $SLAVE01_IP slave01 >> /etc/hosts; \
+       echo $SLAVE02_IP slave02 >> /etc/hosts; \
+       echo 'Updated /etc/hosts'; \
+       echo 'Starting HDFS and YARN'; \
+       sleep 30; \
+       hdfs namenode -format -force -nonInteractive; \
+       start-dfs.sh; \
+       start-yarn.sh; \
+       hadoop fs -mkdir /sparklog; \
+       hadoop fs -chmod 777 /sparklog; \
+       tail -f /dev/null;
+       "
+    ]
