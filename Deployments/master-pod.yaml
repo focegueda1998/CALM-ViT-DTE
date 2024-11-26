@@ -88,14 +88,22 @@ spec:
     command: ["bash", "-c"]
     args: [
       "apt-get install unzip -y; \
+       apt-get install libxcb-xinerama0 -y; \
+       echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
+       echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
+       source /usr/local/miniconda3/bin/activate; \
+       conda install seaborn -y; \
+       conda install matplotlib -y; \
+       conda install scikit-learn -y; \
+       conda install pyqt -y; \
+       conda install -c conda-forge libxcb -y; \
+       echo \"y\" | pip install torchsummary ; \
+       mkdir -p /home/Codebase; \
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \
        . /etc/profile; \
        /usr/sbin/sshd; \
        echo 'Checking for NVIDIA devices'; \
-       for i in $(nvidia-smi --query-gpu=index --format=csv,noheader); do \
-         nvidia-smi -c EXCLUSIVE_PROCESS -i $i; \
-       done; \
        if ls /dev | grep -q 'nvidia[0-9]*'; then \
          echo 'NVIDIA devices found, appending configuration to container-executor.cfg'; \
          echo '[docker]' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
@@ -121,6 +129,10 @@ spec:
        start-yarn.sh; \
        hadoop fs -mkdir /sparklog; \
        hadoop fs -chmod 777 /sparklog; \
+       hadoop fs -mkdir /user; \
+       hadoop fs -chmod 777 /user; \
+       hadoop fs -mkdir /user/MNIST_Checkpoint; \
+       hadoop fs -chmod 777 /user/MNIST_Checkpoint; \
        tail -f /dev/null;
        "
     ]
