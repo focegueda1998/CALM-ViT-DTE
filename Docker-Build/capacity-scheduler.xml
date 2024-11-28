@@ -2,19 +2,55 @@
 
 <configuration>
   <property>
+    <name>yarn.scheduler.capacity.resource-calculator</name>
+    <value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
+  </property>
+  <property>
     <name>yarn.scheduler.capacity.root.queues</name>
     <value>default,production</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+    <value>0.2</value>
   </property>
   <property>
     <name>yarn.scheduler.capacity.root.default.capacity</name>
     <value>50</value>
   </property>
   <property>
+    <name>yarn.scheduler.capacity.root.default.maximum-capacity</name>
+    <value>100</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.capacity.root.default.user-limit-factor</name>
+    <value>1</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.capacity.root.default.maximum-allocation-mb</name>
+    <value>24576</value> <!-- 24GiB per node -->
+  </property>
+  <property>
+    <name>yarn.scheduler.capacity.root.default.maximum-allocation-vcores</name>
+    <value>10</value> <!-- 10 vCores per node -->
+  </property>
+  <property>
     <name>yarn.scheduler.capacity.root.production.capacity</name>
     <value>50</value>
   </property>
   <property>
-    <name>yarn.scheduler.capacity.resource-calculator</name>
-    <value>org.apache.hadoop.yarn.util.resource.DominantResourceCalculator</value>
+    <name>yarn.scheduler.capacity.root.production.maximum-capacity</name>
+    <value>100</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.capacity.root.production.user-limit-factor</name>
+    <value>1</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.capacity.root.production.maximum-allocation-mb</name>
+    <value>24576</value> <!-- 24GiB per node -->
+  </property>
+  <property>
+    <name>yarn.scheduler.capacity.root.production.maximum-allocation-vcores</name>
+    <value>10</value> <!-- 10 vCores per node -->
   </property>
 </configuration>

@@ -66,6 +66,22 @@
         <name>yarn.nodemanager.resource-plugins.gpu.path-to-discovery-executables</name>
         <value>/usr/bin</value>
     </property>
+    <property>
+        <name>yarn.scheduler.maximum-allocation-mb</name>
+        <value>24576</value> <!-- 24 GB -->
+    </property>
+    <property>
+        <name>yarn.nodemanager.resource.memory-mb</name>
+        <value>24576</value> <!-- 24 GB -->
+    </property>
+    <property>
+        <name>yarn.scheduler.maximum-allocation-vcores</name>
+        <value>10</value> <!-- 10 cores -->
+    </property>
+    <property>
+        <name>yarn.nodemanager.resource.cpu-vcores</name>
+        <value>10</value> <!-- 10 cores -->
+    </property>
     <!-- Yarn Resource configuration, May need to play around with these incase our container
     cannot properly allocate resoureces-->
     <!--
