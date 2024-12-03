@@ -1,39 +1,46 @@
 import CNN_TOOLS as CT
 import subprocess
 import pyspark
+import os
 import numpy as np
-from pyspark import SparkContext, SparkConf
+import torch
+import torch.distributed as dist
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from pyspark import SparkContext, SparkConf, BarrierTaskContext
 from pyspark.sql import SparkSession
-from pyspark.ml.torch.distributor import TorchDistributor 
+from pyspark.ml.torch.distributor import TorchDistributor
 
-conf = SparkConf() \
-    .setAppName("Pyspark Dist.") \
-    .setMaster("yarn") \
-    .set("spark.rapids.sql.concurrentGpuTasks", "1") \
-    .set("spark.driver.memory", "2G") \
-    .set("spark.driver.resource.gpu.amount", "1") \
-    .set("spark.driver.resource.gpu.discoveryScript", "/opt/sparkRapidsPlugin/getGpusResources.sh") \
-    .set("spark.executor.memory", "4G") \
-    .set("spark.executor.cores", "4") \
-    .set("spark.task.cpus", "1") \
-    .set("spark.task.resource.gpu.amount", "0.25") \
-    .set("spark.rapids.memory.pinnedPool.size", "2G") \
-    .set("spark.sql.files.maxPartitionBytes", "512m") \
-    .set("spark.plugins", "com.nvidia.spark.SQLPlugin") \
-    .set("spark.resources.discoveryPlugin", "com.nvidia.spark.ExclusiveModeGpuDiscoveryPlugin") \
-    .set("spark.executor.resource.gpu.amount", "1") \
-    .set("spark.executor.resource.gpu.discoveryScript", "/opt/sparkRapidsPlugin/getGpusResources.sh") \
-    .set("spark.files", "/opt/sparkRapidsPlugin/getGpusResources.sh") \
-    .set("spark.jars", "/opt/sparkRapidsPlugin/rapids-4-spark_2.13-24.10.1.jar") \
+# conf = SparkConf() \
+#     .setAppName("Pyspark Dist.") \
+#     .setMaster("yarn") \
+#     .set("spark.rapids.sql.concurrentGpuTasks", "2") \
+#     .set("spark.driver.memory", "2G") \
+#     .set("spark.driver.resource.gpu.amount", "1") \
+#     .set("spark.driver.resource.gpu.discoveryScript", "/opt/sparkRapidsPlugin/getGpusResources.sh") \
+#     .set("spark.executor.memory", "4G") \
+#     .set("spark.executor.cores", "4") \
+#     .set("spark.executor.instances", "2") \
+#     .set("spark.task.cpus", "1") \
+#     .set("spark.task.resource.gpu.amount", "1" ) \
+#     .set("spark.rapids.memory.pinnedPool.size", "2G") \
+#     .set("spark.sql.files.maxPartitionBytes", "512m") \
+#     .set("spark.plugins", "com.nvidia.spark.SQLPlugin") \
+#     .set("spark.executor.resource.gpu.amount", "1") \
+#     .set("spark.executor.resource.gpu.discoveryScript", "/opt/sparkRapidsPlugin/getGpusResources.sh") \
+#     .set("spark.files", "/opt/sparkRapidsPlugin/getGpusResources.sh") \
+#     .set("spark.jars", "/opt/sparkRapidsPlugin/rapids-4-spark_2.13-24.10.1.jar") \
 
-sc = SparkContext.getOrCreate(conf=conf)
-spark = SparkSession.builder \
-    .config(conf=conf) \
-    .getOrCreate()\
-    
+# sc = SparkContext.getOrCreate(conf=conf)
+# spark = SparkSession.builder \
+#     .config(conf=conf) \
+#     .getOrCreate()\
+sc = SparkContext.getOrCreate()
+spark = SparkSession.builder.getOrCreate()
 print("SparkContext initialized.")
 print(f"Application ID: {sc.applicationId}")
-    
+
 # Training Configuration
 EPOCH_COUNT = 2         # Number of training epochs
 WORKER_COUNT = 4        # Number of processes (e.g., CPU cores) for training
@@ -140,6 +147,82 @@ def get_mnist_data(images_rdd, labels_rdd, is_train):
 
     return labeled_image_rdd  # 返回配对的数据
 
-distributor = TorchDistributor()
-#distributor = pyspark.ml.torch.distributor.TorchDistributor()
+def prepare_data(train_images_path, train_labels_path, t10k_images_path, t10k_labels_path, sparkSession):
+    """
+    Prepare the training and testing datasets from binary files.
+    """
+    train_images = sparkSession.binaryFiles(train_images_path)
+    train_labels = sparkSession.binaryFiles(train_labels_path)
+    test_images = sparkSession.binaryFiles(t10k_images_path)
+    test_labels = sparkSession.binaryFiles(t10k_labels_path)
+
+    train_data_rdd = get_mnist_data(train_images, train_labels, is_train=True)
+    test_data_rdd = get_mnist_data(test_images, test_labels, is_train=False)
+
+    train_data = train_data_rdd.collect()
+    test_data = test_data_rdd.collect()
+
+    return train_data, test_data
+
+
+def build_datasets(train_data, test_data):
+    """
+    Build PyTorch datasets from the processed MNIST data.
+    """
+    train_images, train_labels = zip(*train_data)
+    test_images, test_labels = zip(*test_data)
+
+    train_dataset = CT.MNISTDataset(train_images, train_labels)
+    test_dataset = CT.MNISTDataset(test_images, test_labels)
+
+    return train_dataset, test_dataset
+
+def train(learning_rate=0.01, use_gpu=True, train_dataset=None):
+    import torch.nn as nn
+    import torch.optim as optim
+
+    dist.init_process_group(backend='nccl')
+
+    device = torch.device(f"cuda:{int(os.environ['LOCAL_RANK'])}") if use_gpu else torch.device("cpu")
+    
+    model = CT.ImprovedCNN2().to(device)
+    model = DDP(model, device_ids=[device] if use_gpu else None)
+    
+    sampler = DistributedSampler(train_dataset)
+    loader = DataLoader(train_dataset, sampler=sampler, batch_size=8)
+    
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    
+    model.train()
+    for epoch in range(10):  # Example epoch count
+        for batch in loader:
+            inputs, labels = batch
+            inputs, labels = inputs.to(device), labels.to(device)
+            
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+        
+        print(f"Epoch {epoch + 1} completed, loss: {loss.item()}")
+    dist.destroy_process_group()
+    return model
+        # Clear CUDA cache
+
+
+train_data, test_data = prepare_data(
+        mnist_paths["train_images"],
+        mnist_paths["train_labels"],
+        mnist_paths["test_images"],
+        mnist_paths["test_labels"],
+        sc
+    )
+
+train_dataset, test_dataset = build_datasets(train_data, test_data)
+distributor = TorchDistributor(num_processes=1, local_mode=True, use_gpu=True)
+distributor.run(train, learning_rate=0.01, use_gpu=True, train_dataset=train_dataset)
+sc.stop()
+#distributor = pyspark.ml.torch.killdistributor.TorchDistributor()
 #distributor = sc.ml.torch.distributor.TorchDistributor()
