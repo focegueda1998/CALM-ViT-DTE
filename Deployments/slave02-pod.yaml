@@ -82,6 +82,9 @@ spec:
     - containerPort: 8081
       hostPort: 8081
       protocol: TCP
+    - containerPort: 15342
+      hostPort: 15342
+      protocol: TCP
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -116,6 +119,7 @@ spec:
        export SLAVE01_IP=$(cat /config/slave01_ip); \
        echo $MASTER_IP master >> /etc/hosts; \
        echo $SLAVE01_IP slave01 >> /etc/hosts; \
+       chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        echo 'Updated /etc/hosts'; \
        echo 'awaiting for master to start'; \
        tail -f /dev/null; "

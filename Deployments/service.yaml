@@ -60,5 +60,9 @@ spec:
     protocol: TCP
     port: 8081
     targetPort: 8081
+  - name: ipgpu
+    protocol: TCP
+    port: 15342
+    targetPort: 15342
   type: ClusterIP
   clusterIP: None

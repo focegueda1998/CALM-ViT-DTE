@@ -82,6 +82,9 @@ spec:
     - containerPort: 8081
       hostPort: 8081
       protocol: TCP
+    - containerPort: 15342
+      hostPort: 15342
+      protocol: TCP
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -133,6 +136,7 @@ spec:
        hadoop fs -chmod 777 /user; \
        hadoop fs -mkdir /user/MNIST_Checkpoint; \
        hadoop fs -chmod 777 /user/MNIST_Checkpoint; \
+       chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        tail -f /dev/null;
        "
     ]

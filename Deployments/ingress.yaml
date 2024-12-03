@@ -16,7 +16,15 @@ spec:
           service:
             name: hadoop
             port:
-              number: 8088
+              number: 4040
+      - path: /history
+        pathType: Prefix
+        backend:
+          service:
+            name: hadoop
+            port:
+              number: 18080
+        
       - path: /
         pathType: Prefix
         backend:
