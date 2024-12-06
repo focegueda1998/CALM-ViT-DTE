@@ -23,8 +23,9 @@ print("SparkContext initialized.")
 print(f"Application ID: {sc.applicationId}")
 
 # Training Configuration
-EPOCH_COUNT = 1       # Number of training epochs
+EPOCH_COUNT = 15         # Number of training epochs
 BATCH_SIZE = 64          # Number of samples per batch
+useGpu = True            # DO NOT CHANGE FROM TRUE
 
 hdfs_base_path = "hdfs://master:9000/user/MNIST"
 local_checkpoint_file_path = "/config/model_checkpoint.pth"
@@ -133,8 +134,6 @@ def prepare_data(train_images_path, train_labels_path, t10k_images_path, t10k_la
 
     train_data = train_data_rdd.collect()
     test_data = test_data_rdd.collect()
-      # Clear GPU memory
-    torch.cuda.empty_cache()
     gc.collect()
     return train_data, test_data
 
@@ -157,7 +156,7 @@ def load_checkpoint(model, optimizer, filename="/config/model_checkpoint.pth"):
     """
     epoch = 0
     loss = 0.0
-    device = torch.device(int(os.environ["LOCAL_RANK"]) if torch.cuda.is_available() else "cpu")
+    device = torch.device(int(os.environ["LOCAL_RANK"]) if useGpu else "cpu")
     # Only rank 0 should load the checkpoint
     if os.path.exists(filename):
         checkpoint = torch.load(filename, weights_only=True)
@@ -388,7 +387,7 @@ def evaluate_model(model, test_dataset):
     print("=" * 53)
 
     # Plot and display the confusion matrix
-    plot_confusion_matrix(model, test_loader)
+    # plot_confusion_matrix(model, test_loader)
 
 
 def train(initializer, use_gpu=True, train_dataset=None, restart=True):
@@ -414,11 +413,11 @@ def train(initializer, use_gpu=True, train_dataset=None, restart=True):
     logging.basicConfig(filename=log_filename, level=logging.INFO)
 
     gc.collect()
-    torch.cuda.empty_cache()  # Clear GPU memory
+    if use_gpu: torch.cuda.empty_cache()  # Clear GPU memory
 
     # Initialize the process group
     os.environ['NCCL_DEBUG'] = 'ERROR'
-    dist.init_process_group(backend='nccl')
+    dist.init_process_group(backend='nccl' if use_gpu else 'gloo')
 
     manager = torch.multiprocessing.Manager()
 
@@ -506,7 +505,7 @@ def train(initializer, use_gpu=True, train_dataset=None, restart=True):
             save_checkpoint(model, optimizer, epoch, loss.item(), filename="/config/model_checkpoint.pth")
         
         gc.collect()
-        torch.cuda.empty_cache()  # Clear GPU memory
+        if use_gpu: torch.cuda.empty_cache()
         print(f"Epoch {epoch + 1} on device {global_rank} completed, loss: {loss.item()}")
 
     end_time = time.time()  # Record end time
@@ -548,6 +547,10 @@ def train(initializer, use_gpu=True, train_dataset=None, restart=True):
     return model.module, loss_dict.items(), accuracy_dict.items(), batch_loss_dict.items()
 
 # Prepare data
+print("Building datasets...", end=" ")
+
+start = time.time()
+
 train_data, test_data = prepare_data(
     mnist_paths["train_images"],
     mnist_paths["train_labels"],
@@ -556,11 +559,6 @@ train_data, test_data = prepare_data(
     sc
 )
 
-
-os.environ['QT_LOGGING_RULES'] = '*.debug=false;qt.qpa.*=false'
-
-print("Building datasets...", end=" ")
-start = time.time()
 train_dataset, test_dataset = build_datasets(train_data, test_data)
 print(f"Done. Elapsed time: {time.time() - start} seconds.")
 
@@ -571,12 +569,12 @@ print("Running TorchDistributor...", end=" ")
 
 start = time.time()
 
-distributor = TorchDistributor(num_processes=2, local_mode=False, use_gpu=True)
+distributor = TorchDistributor(num_processes=2, local_mode=False, use_gpu=useGpu)
 
 cnn_model, loss_dict, accuracy_dict, batch_loss_dict = distributor.run(
     train,
     CT.initialize_cnn,
-    use_gpu=True,
+    use_gpu=useGpu,
     train_dataset=train_dataset,
     restart=False
 )
@@ -593,7 +591,7 @@ upload_checkpoint_to_hdfs(filename, hdfs_checkpoint_dir)
 
 # plot_loss_curve(batch_loss_dict)  # Plot loss curve
 # plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
-# evaluate_model(cnn_model, test_dataset)  # Model evaluation
+evaluate_model(cnn_model, test_dataset)  # Model evaluation
 
 
 start = time.time()
@@ -601,7 +599,7 @@ start = time.time()
 res18_model, loss_dict, accuracy_dict, batch_loss_dict = distributor.run(
     train,
     CT.initialize_res18,
-    use_gpu=True,
+    use_gpu=useGpu,
     train_dataset=train_dataset,
     restart=False
 )
@@ -616,14 +614,14 @@ upload_checkpoint_to_hdfs(filename, hdfs_checkpoint_dir)
 
 # plot_loss_curve(batch_loss_dict)  # Plot loss curve
 # plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
-# evaluate_model(res18_model, test_dataset)  # Model evaluation
+evaluate_model(res18_model, test_dataset)  # Model evaluation
 
 start = time.time()
 
 res50_model, loss_dict, accuracy_dict, batch_loss_dict = distributor.run(
     train,
     CT.initialize_res50,
-    use_gpu=True,
+    use_gpu=useGpu,
     train_dataset=train_dataset,
     restart=False
 )
@@ -638,7 +636,7 @@ upload_checkpoint_to_hdfs(filename, hdfs_checkpoint_dir)
 
 # plot_loss_curve(batch_loss_dict)  # Plot loss curve
 # plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
-# evaluate_model(res50_model, test_dataset)  # Model evaluation
+evaluate_model(res50_model, test_dataset)  # Model evaluation
 
 # Stop the Spark context
 sc.stop()
