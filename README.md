@@ -1,6 +1,4 @@
-# Hadoop Limited Environment For Docker and Kubernetes
-
-A test of a Hadoop Docker environment for use in deployment with Kubernetes, built from an Ubuntu image (https://hub.docker.com/_/ubuntu). This is not to be confused with the official Hadoop Docker image (https://hub.docker.com/r/apache/hadoop).
+# Spark + Hadoop Cluster Environment (OUTDATED!)
 
 # Recommended Reading
 
@@ -26,12 +24,13 @@ please refer to their 'Policies' (https://docs.nationalresearchplatform.org/user
             
 # Included
 
-A primary image is used to create each Hadoop container; its image may be pulled here: ' gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/hadoop '. The 'core-site.xml',
-'hdfs-site.xml', 'mapred-site.xml', 'yarn-site.xml', and 'hadoop-env.sh' files are already configured. You may find them under '$HADOOP_HOME/etc/hadoop' directory in your container.
+A primary image is used to create each Hadoop container; its image may be pulled here: 'gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/pysparktorch' . All the configurations and Dockerfile for image building is located in /Docker-Build/
 
-/Kubernetes-Yaml-Files/ includes .yaml file configurations that start up each component separately:
+/Deployments/ includes .yaml file configurations that start up each component separately:
 
     - service.yaml: Defines headless 'hadoop' service that exposes required ports for container communication.
+
+    - ingress.yaml: Forwards WebUI components
     
     - pv.yaml: Defines a Persistent Volume in 'ReadWriteMany' to be shared between Pods. Do not use if you do not have control over the creation of Volumes.
     
@@ -45,6 +44,8 @@ A primary image is used to create each Hadoop container; its image may be pulled
     - slave01-pod.yaml: Defines the 'slave01' Hadoop container instance. This is where the secondary NameNode located.
     
     - slave02-pod.yaml: Defines the 'slave02' Hadoop container instance.
+
+/Codebase/: includes files for testing distributed environment. Make sure to copy the MNIST folder to /user/MNIST in HDFS.
     
 # Setting Up Pods
 
@@ -70,7 +71,7 @@ A primary image is used to create each Hadoop container; its image may be pulled
 
 # Shutting Down Pods
 
-Shutting down pods can be done with ' kubectl delete -f example.yaml ', and can also be chained like the ' apply ' command. Be aware that deleting your Pods & PVC will cause all data to be lost due to the stateless nature of Pods. I am currently exploring options to work around this.
+Shutting down pods can be done with ' kubectl delete -f example.yaml ', and can also be chained like the ' apply ' command. Be aware that deleting your Pods & PVC will cause all data to be lost due to the stateless nature of Pods. For simplicity sake, use 'bash activate.sh' and 'bash deactivate.sh' to quickly deploy and destroy the pods.
 
 # Other Acknowledgments
 
