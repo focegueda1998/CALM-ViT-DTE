@@ -582,15 +582,15 @@ cnn_model, loss_dict, accuracy_dict, batch_loss_dict = distributor.run(
 print(f"Exited Distributed Process. Elapsed time: {time.time() - start} seconds.")
 
 
-filename = generate_checkpoint_filename()
+filename = generate_checkpoint_filename(prefix="CNN")
 
 os.rename("/config/model_checkpoint.pth", "/config/" + filename)
 
 upload_checkpoint_to_hdfs(filename, hdfs_checkpoint_dir)
 
 
-# plot_loss_curve(batch_loss_dict)  # Plot loss curve
-# plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
+plot_loss_curve(batch_loss_dict)  # Plot loss curve
+plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
 evaluate_model(cnn_model, test_dataset)  # Model evaluation
 
 
@@ -606,14 +606,14 @@ res18_model, loss_dict, accuracy_dict, batch_loss_dict = distributor.run(
 
 print(f"Exited Distributed Process. Elapsed time: {time.time() - start} seconds.")
 
-filename = generate_checkpoint_filename()
+filename = generate_checkpoint_filename(prefix="Resnet_18")
 
 os.rename("/config/model_checkpoint.pth", "/config/" + filename)
 
 upload_checkpoint_to_hdfs(filename, hdfs_checkpoint_dir)
 
-# plot_loss_curve(batch_loss_dict)  # Plot loss curve
-# plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
+plot_loss_curve(batch_loss_dict)  # Plot loss curve
+plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
 evaluate_model(res18_model, test_dataset)  # Model evaluation
 
 start = time.time()
@@ -628,14 +628,14 @@ res50_model, loss_dict, accuracy_dict, batch_loss_dict = distributor.run(
 
 print(f"Exited Distributed Process. Elapsed time: {time.time() - start} seconds.")
 
-filename = generate_checkpoint_filename()
+filename = generate_checkpoint_filename(prefix="Resnet50")
 
 os.rename("/config/model_checkpoint.pth", "/config/" + filename)
 
 upload_checkpoint_to_hdfs(filename, hdfs_checkpoint_dir)
 
-# plot_loss_curve(batch_loss_dict)  # Plot loss curve
-# plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
+plot_loss_curve(batch_loss_dict)  # Plot loss curve
+plot_accuracy_curve(accuracy_dict)  # Plot accuracy curve
 evaluate_model(res50_model, test_dataset)  # Model evaluation
 
 # Stop the Spark context

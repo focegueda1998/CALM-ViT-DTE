@@ -25,5 +25,5 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.driver.extraClassPath=${SPARK_RAPIDS_PLUGIN_JAR} \
        --files ${SPARK_RAPIDS_DIR}/getGpusResources.sh \
        --jars ${SPARK_RAPIDS_PLUGIN_JAR} \
-       --py-files py_files.zip \
-       MNIST_SPARK_DIST.py
+       --py-files hdfs://master:9000/user/Codebase/py_files.zip \
+       hdfs://master:9000/user/Codebase/MNIST_SPARK_DIST.py;
