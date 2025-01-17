@@ -2,7 +2,7 @@
 
 # Recommended Reading
 
-Please refer to the following tutorials before setting up Hadoop:
+Please refer to the following tutorials before setup:
     
     - National Research Platform UserDocs (https://docs.nationalresearchplatform.org/userdocs/start/quickstart/):
         
@@ -24,7 +24,7 @@ please refer to their 'Policies' (https://docs.nationalresearchplatform.org/user
             
 # Included
 
-A primary image is used to create each Hadoop container; its image may be pulled here: 'gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/pysparktorch' . All the configurations and Dockerfile for image building is located in /Docker-Build/
+A primary image is used to create each container; its image may be pulled here: 'gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/pysparktorch' . All the configurations and Dockerfile for image building is located in /Docker-Build/
 
 /Deployments/ includes .yaml file configurations that start up each component separately:
 
