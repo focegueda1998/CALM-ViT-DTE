@@ -569,7 +569,7 @@ print("Running TorchDistributor...", end=" ")
 
 start = time.time()
 
-distributor = TorchDistributor(num_processes=2, local_mode=False, use_gpu=useGpu)
+distributor = TorchDistributor(num_processes=3, local_mode=False, use_gpu=useGpu)
 
 cnn_model, loss_dict, accuracy_dict, batch_loss_dict = distributor.run(
     train,

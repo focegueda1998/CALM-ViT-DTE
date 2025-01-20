@@ -32,7 +32,7 @@ spec:
       mountPath: /config
   containers:
   - name: slave01
-    image: "gitlab-registry.nrp-nautilus.io/focegueda/hadoop-test/pysparktorch:latest"
+    image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
     resources:
       limits:
         memory: 24Gi
@@ -82,8 +82,11 @@ spec:
     - containerPort: 8081
       hostPort: 8081
       protocol: TCP
-    - containerPort: 15342
-      hostPort: 15342
+    - containerPort: 9092
+      hostPort: 9092
+      protocol: TCP
+    - containerPort: 9093
+      hostPort: 9093
       protocol: TCP
     volumeMounts:
     - name: config-volume
@@ -102,7 +105,7 @@ spec:
        conda install pyqt -y; \
        echo \"y\"| pip install pyqt5; \
        conda install -c conda-forge libxcb -y; \
-       echo \"y\" | pip install torchsummary ; \
+       echo \"y\" | pip install torchsummary; \
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \
        . /etc/profile; \
@@ -121,10 +124,21 @@ spec:
        echo 'Fetching node IPs and updating /etc/hosts'; \
        export MASTER_IP=$(cat /config/master_ip); \
        export SLAVE02_IP=$(cat /config/slave02_ip); \
+       export SLAVE03_IP=$(cat /config/slave03_ip); \
        echo $MASTER_IP master >> /etc/hosts; \
        echo $SLAVE02_IP slave02 >> /etc/hosts; \
+       echo $SLAVE03_IP slave03 >> /etc/hosts; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        echo 'Updated /etc/hosts'; \
+       sleep 15; \
+       echo 'Setting up Kafka Controller'; \
+       export CURRENT_SERVER_INDEX=1; \
+       export CLUSTER_UUID=$(cat /config/uuid); \
+       sed -i \"s#node.id=.*#node.id=${CURRENT_SERVER_INDEX}#g\" /usr/local/kafka/config/kraft/server.properties; \
+       sed -i \"s#controller.quorum.voters=.*#controller.quorum.voters=1@slave01:9093,2@slave02:9093,3@slave03:9093,4@master:9093#g\" /usr/local/kafka/config/kraft/server.properties; \
+       sed -i \"s#log.dirs=.*#log.dirs=/var/kafka#g\" /usr/local/kafka/config/kraft/server.properties; \
+       bash /usr/local/kafka/bin/kafka-storage.sh format -t ${CLUSTER_UUID} -c /usr/local/kafka/config/kraft/server.properties; \
+       bash /usr/local/kafka/bin/kafka-server-start.sh -daemon /usr/local/kafka/config/kraft/server.properties; \
        echo 'awaiting for master to start'; \
        tail -f /dev/null; "
     ]

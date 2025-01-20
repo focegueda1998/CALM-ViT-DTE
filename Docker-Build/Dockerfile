@@ -14,10 +14,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 # using a different version Spark.
 COPY hadoop-3.4.0.tar.gz /usr/local/
 COPY spark-3.5.2-bin-hadoop3-scala2.13.tgz /usr/local/
+COPY kafka_2.13-3.9.0.tgz /usr/local/
 
 # Install necessary packages and set up the environment
 RUN apt-get update && \
-    apt-get install -y vim curl ssh openjdk-8-jdk sudo wget && \
+    apt-get install -y vim curl ssh openjdk-8-jdk default-jre sudo wget && \
     apt-get clean && \
     ssh-keygen -t rsa -N "" -f /root/.ssh/id_rsa && \
     cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys && \
@@ -35,9 +36,12 @@ RUN apt-get update && \
     # If you want to use a different version, replace the tarballs and the paths below.
     tar -zxvf /usr/local/hadoop-3.4.0.tar.gz -C /usr/local/ && \
     tar -zxvf /usr/local/spark-3.5.2-bin-hadoop3-scala2.13.tgz -C /usr/local/ && \
+    tar -zxvf /usr/local/kafka_2.13-3.9.0.tgz -C /usr/local/ && \
     mv /usr/local/spark-3.5.2-bin-hadoop3-scala2.13 /usr/local/spark && \
+    mv /usr/local/kafka_2.13-3.9.0 /usr/local/kafka && \
     rm -rf /usr/local/hadoop-3.4.0.tar.gz && \
     rm -rf /usr/local/spark-3.5.2-bin-hadoop3-scala2.13.tgz && \
+    rm -rf /usr/local/kafka_2.13-3.9.0.tgz && \
     rm -rf /usr/local/hadoop-3.4.0/etc/hadoop/core-site.xml && \
     rm -rf /usr/local/hadoop-3.4.0/etc/hadoop/hdfs-site.xml && \
     rm -rf /usr/local/hadoop-3.4.0/etc/hadoop/mapred-site.xml && \
@@ -51,10 +55,12 @@ RUN apt-get update && \
     mkdir -p /var/hadoop/yarn && \
     mkdir -p /var/hadoop/yarn/local && \
     mkdir -p /var/hadoop/yarn/logs && \
+    mkdir -p /var/kafka/ && \
     chmod a+rwx -R /var/hadoop/ && \
     chmod a+rwx -R /var/hadoop/yarn && \
     chmod a+rwx -R /var/hadoop/yarn/local && \
     chmod a+rwx -R /var/hadoop/yarn/logs && \
+    chmod a+rwx -R /var/kafka/ && \
     curl -fL https://github.com/coursier/coursier/releases/latest/download/cs-x86_64-pc-linux.gz | gzip -d > cs && chmod +x cs && ./cs setup -y && \
     # Make note of these as they will be used in the environment setup, and overall make navigating the container easier.
     # You may change these to your desired paths.
