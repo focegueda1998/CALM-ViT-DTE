@@ -105,6 +105,7 @@ spec:
        conda install pyqt -y; \
        echo \"y\"| pip install pyqt5; \
        conda install -c conda-forge libxcb -y; \
+       conda install -c conda-forge pillow -y; \
        echo \"y\" | pip install torchsummary ; \
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \

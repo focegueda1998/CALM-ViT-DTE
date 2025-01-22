@@ -107,6 +107,7 @@ spec:
        conda install scikit-learn -y; \
        conda install pyqt -y; \
        echo \"y\"| pip install pyqt5; \
+       conda install -c conda-forge pillow -y; \
        conda install -c conda-forge libxcb -y; \
        echo \"y\" | pip install torchsummary ; \
        mkdir -p /home/Codebase; \
