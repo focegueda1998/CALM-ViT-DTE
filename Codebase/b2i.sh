@@ -20,6 +20,8 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.sql.files.maxPartitionBytes=512m \
        --conf spark.plugins=com.nvidia.spark.SQLPlugin \
        --conf spark.executor.resource.gpu.amount=1 \
+       --conf spark.driver.maxResultSize=5G \
+       --conf spark.sql.hive.filesourcePartitionFileCacheSize=4096000000 \
        --conf spark.executor.resource.gpu.discoveryScript=${SPARK_RAPIDS_DIR}/getGpusResources.sh \
        --conf spark.executor.extraClassPath=${SPARK_RAPIDS_PLUGIN_JAR} \
        --conf spark.driver.extraClassPath=${SPARK_RAPIDS_PLUGIN_JAR} \
