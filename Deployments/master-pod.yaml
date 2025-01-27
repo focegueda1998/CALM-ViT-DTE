@@ -100,6 +100,8 @@ spec:
        apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
        echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
        echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
+       echo \"export KAGGLE_USERNAME=\"; \
+       echo \"export KAGGLE_KEY=\"; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda install seaborn -y; \
@@ -107,6 +109,7 @@ spec:
        conda install scikit-learn -y; \
        conda install pyqt -y; \
        echo \"y\"| pip install pyqt5; \
+       echo \"y\"| pip install kaggle; \
        conda install -c conda-forge pillow -y; \
        conda install -c conda-forge libxcb -y; \
        echo \"y\" | pip install torchsummary ; \
@@ -150,13 +153,19 @@ spec:
        hdfs namenode -format -force -nonInteractive; \
        start-dfs.sh; \
        start-yarn.sh; \
+       echo 'Setting Up Directories'; \
        hadoop fs -mkdir /sparklog; \
        hadoop fs -chmod 777 /sparklog; \
        hadoop fs -mkdir /user; \
        hadoop fs -chmod 777 /user; \
-       hadoop fs -mkdir /user/MNIST_Checkpoint; \
-       hadoop fs -chmod 777 /user/MNIST_Checkpoint; \
+       echo 'Downloading Kaggle Dataset, Please Wait For This To Complete'; \
+       kaggle datasets download dimensi0n/afhq-512 -p /home; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
+       mkdir -p /home/animals; \
+       unzip /home/afhq-512.zip -d /home/animals; \
+       hadoop fs -put /home/animals /user; \
+       rm -r /home/animals; \
+       echo 'Dataset Downloaded'; \
        tail -f /dev/null;
        "
     ]

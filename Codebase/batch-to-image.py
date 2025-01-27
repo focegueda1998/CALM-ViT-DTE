@@ -7,6 +7,7 @@ import torch
 import io
 import uuid
 from PIL import Image
+from time import time
 from pyspark import SparkContext, SparkFiles
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, StructField, StructType, BinaryType, StringType
@@ -35,7 +36,29 @@ def imageToBinary(image):
         return stream.getvalue()
     return None
 
+def showImage(image, label):
+    plt.imshow(
+        np.array(
+            Image.open(
+                io.BytesIO(
+                    image
+                )
+            )
+        ), 
+        interpolation='bicubic'
+    )
+    plt.title(label)
+    plt.show()
+
+
+def secondsToTime(seconds):
+    secs = int(seconds) % 60
+    mins = int(seconds // 60) % 60
+    hours = int(mins // 60)
+    return f"{hours if hours > 9 else f'0{hours}'}:{mins if mins > 9 else f'0{mins}'}:{secs if secs > 9 else f'0{secs}'}"
+
 # Spark configuration
+start = time()
 
 hdfs_path = "hdfs://master:9000/user/"
 sc = SparkContext.getOrCreate()
@@ -87,44 +110,65 @@ sc.parallelize(batch_paths) \
 rdd_batch = spark.read.parquet("/user/cifar-10-images").rdd.map(lambda x: (x["label"], x["fileID"], x["data"]))
 
 for label, images in rdd_batch.groupBy(lambda x: x[0]).collect():
-    # image = sc.parallelize(images).map(lambda x: (x[1], x[2])).collect()
-    # index = random.randint(0, len(image) - 1)
-    # plt.imshow(
-    #     np.array(
-    #         Image.open(
-    #             io.BytesIO(
-    #                 image[index][1]
-    #             )
-    #         )
-    #     ), 
-    #     interpolation='bicubic'
-    # )
-    # plt.xlabel(image[index][0])
-    # plt.show()
+    image = sc.parallelize(images).map(lambda x: (x[1], x[2])).collect()
+    index = random.randint(0, len(image) - 1)
+    # showImage(image[index][1], image[index][0])
+    with open(f"/home/Codebase/images/{image[index][0]}.jpg", "wb") as file:
+        file.write(image[index][1])
     print(f"Label: {label_names[label]}, Number of images: {len(images)}")
 
+rdds = []
+
 for label in ['dog', 'cat', 'wild']:
-    spark.read.format("binaryFile") \
-         .option("pathGlobFilter", "*.png") \
-         .option("recursiveFileLookup", False) \
-         .load(f"/user/animals/{label}") \
-         .rdd.map(lambda x: (label_names.index(label), f"{label}_512x512_{str(uuid.uuid4())}", x["content"])) \
-         .toDF(Schema).write.mode("overwrite").parquet("/user/animal-images/" + label)
-    
+    rdds.append(
+        spark.read.format("binaryFile") \
+             .option("pathGlobFilter", "*.png") \
+             .option("recursiveFileLookup", False) \
+             .load(f"/user/animals/{label}") \
+             .rdd.map(
+                 lambda x: (
+                     label_names.index(label), 
+                     f"{label}_512x512_{str(uuid.uuid4())}", 
+                     x["content"],
+                     random.random()
+                 ) 
+              )
+             .sortBy(lambda x: x[3]) \
+             .map(lambda x: (x[0], x[1], x[2]))
+    )
+
+    rdds[-1].toDF(Schema).write.mode("overwrite").parquet(f"/user/animal-images/{label}")
+
     animal = spark.read.parquet("/user/animal-images/" + label).rdd.map(lambda x: (x["label"], x["fileID"], x["data"]))
 
-    plt.imshow(
-        np.array(
-            Image.open(
-                io.BytesIO(
-                    animal.first()[2]
-                )
-            )
-        ), 
-        interpolation='bicubic'
-    )
-    plt.xlabel(animal.first()[1])
-    plt.show()
+    # showImage(animal.first()[2], animal.first()[1])
+   
+    with open(f"/home/Codebase/images/{animal.first()[1]}.png", "wb") as file:
+        file.write(animal.first()[2])
     print(f"Label: {label_names[animal.first()[0]]}, Number of images: {animal.count()}")
+
+dog_rdds = rdds[0].randomSplit([0.2 for _ in range(5)], random.randint(0, 100))
+cat_rdds = rdds[1].randomSplit([0.2 for _ in range(5)], random.randint(0, 100))
+wld_rdds = rdds[2].randomSplit([0.2 for _ in range(5)], random.randint(0, 100))
+
+for i in range(5):
+
+    dog_rdds[i].union(cat_rdds[i]) \
+               .union(wld_rdds[i]) \
+               .map(lambda x: (x[0], x[1], x[2], random.random())) \
+               .sortBy(lambda x: x[3]) \
+               .map(lambda x: (x[0], x[1], x[2])) \
+               .toDF(Schema).repartition(12) \
+               .write.mode("overwrite").parquet(f"/user/train/batch_{i}")
+    
+    animal = spark.read.parquet(f"/user/train/batch_{i}").rdd.map(lambda x: (x["label"], x["fileID"], x["data"]))
+
+    # showImage(animal.first()[2], animal.first()[1])
+
+    with open(f"/home/Codebase/images/{animal.first()[1]}.png", "wb") as file:
+        file.write(animal.first()[2])
+    print(f"Label: {label_names[animal.first()[0]]}, Number of images: {animal.count()}")
+
+print(f"Time taken: {secondsToTime(time() - start)}")
 
 sc.stop()
