@@ -165,6 +165,11 @@ spec:
        unzip /home/afhq-512.zip -d /home/animals; \
        hadoop fs -put /home/animals /user; \
        rm -r /home/animals; \
+       mkdir -p /home/AI_Human_Generated_Images; \
+       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -p /home; \
+       unzip /home/ai-vs-human-generated-dataset.zip -d /home/AI_Human_Generated_Images; \
+       hadoop fs -put /home/AI_Human_Generated_Images /user; \
+       rm -r /home/AI_Human_Generated_Images; \
        echo 'Dataset Downloaded'; \
        tail -f /dev/null;
        "
