@@ -1,3 +1,5 @@
+# Example program for testing, delete later.
+
 import os
 import time
 import subprocess

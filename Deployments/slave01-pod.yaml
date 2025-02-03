@@ -99,6 +99,8 @@ spec:
        echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
+       conda install -c conda-forge transformers -y; \
+       conda install -c conda-forge diffusers -y; \
        conda install seaborn -y; \
        conda install matplotlib -y; \
        conda install scikit-learn -y; \
