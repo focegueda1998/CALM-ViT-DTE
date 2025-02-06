@@ -2,8 +2,8 @@
 
 $SPARK_HOME/bin/spark-submit \
        --master yarn \
-       --conf spark.rapids.sql.concurrentGpuTasks=1 \
        --driver-memory 2G \
+       --conf spark.log.level=ERROR \
        --conf spark.driver.resource.gpu.amount=0 \
        --conf spark.driver.resource.gpu.discoveryScript=${SPARK_RAPIDS_DIR}/getGpusResources.sh \
        --conf spark.executor.memory=20G \
@@ -13,7 +13,7 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.executor.cores=8 \
        --conf spark.task.cpus=8 \
        --conf spark.files.overwrite=true \
-       --conf spark.rpc.io.serverThreads=30 \
+       --conf spark.rpc.io.serverThreads=70 \
        --conf spark.rpc.io.clientThreads=10 \
        --conf spark.task.resource.gpu.amount=1 \
        --conf spark.rapids.memory.pinnedPool.size=2G \
