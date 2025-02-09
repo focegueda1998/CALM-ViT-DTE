@@ -27,7 +27,7 @@ def unpickle(batch_path):
 
 #? Function to add pickle file to SparkFiles
 
-def addFileToSpark(batch_path):
+def addFileToSpark(pickle_path, batch_path):
     sc.addFile(pickle_path + batch_path)
 
 #? Function to save an image to HDFS (Read the note below)
@@ -131,7 +131,7 @@ for i in range(10):
 # pickle_path = (hdfs_path + "cifar-10-batches-py/")
 # batch_paths = [f'data_batch_{i}' for i in range(1, 6)] + ['test_batch']
 # for batch_path in batch_paths:
-#     addFileToSpark(batch_path)
+#     addFileToSpark(pickle_path, batch_path)
 
 # # Merge the data and labels into a single RDD
 # sc.addFile(pickle_path + 'batches.meta')
