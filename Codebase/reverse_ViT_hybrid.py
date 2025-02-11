@@ -1,5 +1,4 @@
 import torch
-from transformers import ViTModel, ViTConfig, ViTImageProcessor
 from PIL import Image
 from torch.utils.data import Dataset
 import torchvision
@@ -53,3 +52,14 @@ def initialize_res50(device):
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
 
     return model, optimizer, scheduler
+
+def vision_transformer(device):
+    """
+    Initialize the model and optimizer.
+    The function sets up the model and optimizer, then returns both.
+    """
+    model = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT).to(device)
+
+if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    vision_transformer(device)
