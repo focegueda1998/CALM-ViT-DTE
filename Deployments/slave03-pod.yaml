@@ -13,10 +13,12 @@ spec:
           - key: nvidia.com/gpu.product
             operator: In
             values:
+            - NVIDIA-A10
             - NVIDIA-L4
-  nodeSelector:
-    topology.kubernetes.io/region: us-west
-    topology.kubernetes.io/zone: fullerton
+            - NVIDIA-GeForce-RTX-3090
+  # nodeSelector:
+  #   topology.kubernetes.io/region: us-west
+  #   topology.kubernetes.io/zone: fullerton
   volumes:
   - name: config-volume
     persistentVolumeClaim:
