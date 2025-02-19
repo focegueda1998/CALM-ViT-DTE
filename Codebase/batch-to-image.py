@@ -101,13 +101,13 @@ Schema = StructType([
 ])
 
 # Get the paths of the batches, then parallelize them
-metadeta_df = spark.read.csv("/user/AI_Human_Generated_Images/train.csv", header=True, inferSchema=True) \
+metadeta_df = spark.read.csv("file:///config/AI_Human_Generated_Images/train.csv", header=True, inferSchema=True) \
                    .withColumn("file_name", regexp_replace("file_name",".*train_data/", "")).repartition(1)
 metadeta_df.show()
 r_or_f_df  = spark.read.format("binaryFile") \
                   .option("pathGlobFilter", "*.jpg") \
                   .option("recursiveFileLookup", False) \
-                  .load(f"/user/AI_Human_Generated_Images/train_data/") \
+                  .load(f"file:///config/AI_Human_Generated_Images/train_data/") \
                   .repartition(40) \
                   .withColumnRenamed("path", "file_name") \
                   .withColumn("file_name", regexp_replace("file_name", ".*train_data/", "")) \
@@ -127,6 +127,8 @@ for i in range(10):
     with open(f"/home/Codebase/images/{r_or_f.first()[1]}.jpg", "wb") as file:
         file.write(r_or_f.first()[2])
     print(f"Label: {r_or_f.first()[0]}, Number of images: {r_or_f.count()}")
+
+print(f"Time taken: {secondsToTime(time() - start)}")
 
 # pickle_path = (hdfs_path + "cifar-10-batches-py/")
 # batch_paths = [f'data_batch_{i}' for i in range(1, 6)] + ['test_batch']

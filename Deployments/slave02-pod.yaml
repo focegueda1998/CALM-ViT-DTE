@@ -5,20 +5,19 @@ metadata:
   labels:
     k8s-app: hadoop
 spec:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-        - matchExpressions:
-          - key: nvidia.com/gpu.product
-            operator: In
-            values:
-            - NVIDIA-A10
-            - NVIDIA-L4
-            - NVIDIA-GeForce-RTX-3090
-  # nodeSelector:
-  #   topology.kubernetes.io/region: us-west
-  #   topology.kubernetes.io/zone: fullerton
+  # affinity:
+  #   nodeAffinity:
+  #     requiredDuringSchedulingIgnoredDuringExecution:
+  #       nodeSelectorTerms:
+  #       - matchExpressions:
+  #         - key: nvidia.com/gpu.product
+  #           operator: In
+  #           values:
+  #           - NVIDIA-L4
+  #           - NVIDIA-GeForce-RTX-3090
+  nodeSelector:
+    topology.kubernetes.io/region: us-west
+    topology.kubernetes.io/zone: fullerton
   volumes:
   - name: config-volume
     persistentVolumeClaim:

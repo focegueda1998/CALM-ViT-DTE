@@ -2,9 +2,25 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 import torchvision
-from torchvision import models
+from torchvision import models, io
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
+
+class ImageTokenizer(torch.nn.Module):
+    """
+    Image Tokenizer class for the Vision Transformer model.
+    """
+    def __init__(self, num_channels=3, patch_size=16, embed_dim=768, image_size=224):
+        super().__init__()
+        self.patch_size = patch_size
+        self.proj = torch.nn.Conv2d(num_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+        # self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim))
+        self.pos_embed = torch.nn.Parameter(torch.randn(1, (image_size // patch_size) ** 2 + 1, embed_dim))
+    
+    def forward(self, x):
+        return self.proj(x).flatten(2).transpose(1, 2) + self.pos_embed
+
+
 
 def initialize_res18(device):
     """
