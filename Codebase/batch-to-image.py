@@ -101,13 +101,13 @@ Schema = StructType([
 ])
 
 # Get the paths of the batches, then parallelize them
-metadeta_df = spark.read.csv("file:///config/AI_Human_Generated_Images/train.csv", header=True, inferSchema=True) \
+metadeta_df = spark.read.csv("/user/AI_Human_Generated_Images/train.csv", header=True, inferSchema=True) \
                    .withColumn("file_name", regexp_replace("file_name",".*train_data/", "")).repartition(1)
 metadeta_df.show()
 r_or_f_df  = spark.read.format("binaryFile") \
                   .option("pathGlobFilter", "*.jpg") \
                   .option("recursiveFileLookup", False) \
-                  .load(f"file:///config/AI_Human_Generated_Images/train_data/") \
+                  .load(f"/user/AI_Human_Generated_Images/train_data/") \
                   .repartition(40) \
                   .withColumnRenamed("path", "file_name") \
                   .withColumn("file_name", regexp_replace("file_name", ".*train_data/", "")) \

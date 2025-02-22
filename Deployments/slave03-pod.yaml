@@ -15,9 +15,12 @@ spec:
   #           values:
   #           - NVIDIA-L4
   #           - NVIDIA-GeForce-RTX-3090
+  # nodeSelector:
+  #   topology.kubernetes.io/region: us-west
+  #   topology.kubernetes.io/zone: fullerton
   nodeSelector:
     topology.kubernetes.io/region: us-west
-    topology.kubernetes.io/zone: fullerton
+    topology.kubernetes.io/zone: humboldt
   volumes:
   - name: config-volume
     persistentVolumeClaim:

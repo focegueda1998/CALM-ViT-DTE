@@ -18,6 +18,9 @@ spec:
   # nodeSelector:
   #   topology.kubernetes.io/region: us-west
   #   topology.kubernetes.io/zone: fullerton
+  nodeSelector:
+    topology.kubernetes.io/region: us-west
+    topology.kubernetes.io/zone: humboldt
   volumes:
   - name: config-volume
     persistentVolumeClaim:
@@ -132,22 +135,11 @@ spec:
          echo 'NVIDIA devices not found'; \
        fi; \
        sleep 30; \
-       echo 'Downloading Kaggle Dataset, Please Wait For This To Complete'; \
-       kaggle datasets download dimensi0n/afhq-512 -p /config; \
-       mkdir -p /config/animals; \
-       unzip /config/afhq-512.zip -d /config/animals; \
-       mkdir -p /config/AI_Human_Generated_Images; \
-       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -p /config; \
-       unzip /config/ai-vs-human-generated-dataset.zip -d /config/AI_Human_Generated_Images; \
-       rm -rf /config/afhq-512.zip; \
-       rm -rf /config/ai-vs-human-generated-dataset.zip; \
-       echo 'Dataset Downloaded'; \
        echo 'Fetching node IPs and updating /etc/hosts'; \
        export MASTER_IP=$(hostname -i); \
        export SLAVE01_IP=$(cat /config/slave01_ip); \
        export SLAVE02_IP=$(cat /config/slave02_ip); \
        export SLAVE03_IP=$(cat /config/slave03_ip); \
-       echo $MASTER_IP master >> /etc/hosts; \
        echo $SLAVE01_IP slave01 >> /etc/hosts; \
        echo $SLAVE02_IP slave02 >> /etc/hosts; \
        echo $SLAVE03_IP slave03 >> /etc/hosts; \
@@ -171,6 +163,15 @@ spec:
        hadoop fs -chmod 777 /sparklog; \
        hadoop fs -mkdir /user; \
        hadoop fs -chmod 777 /user; \
+       echo 'Downloading Kaggle Dataset, Please Wait For This To Complete'; \
+       mkdir -p /home/AI_Human_Generated_Images; \
+       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -p /home; \
+       unzip /home/ai-vs-human-generated-dataset.zip -d /home/AI_Human_Generated_Images; \
+       rm -rf /home/ai-vs-human-generated-dataset.zip; \
+       echo 'Dataset Downloaded'; \
+       hadoop fs -put /home/AI_Human_Generated_Images /user; \
+       rm -rf /home/AI_Human_Generated_Images; \
+       echo 'Directories Set Up'; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        tail -f /dev/null;
        "

@@ -1,10 +1,20 @@
 import torch
-from PIL import Image
-from torch.utils.data import Dataset
 import torchvision
-from torchvision import models, io
 import torch.optim as optim
+import numpy as np
+import torchvision.transforms.functional
+from time import time
+from pyspark import SparkContext, SparkFiles
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import regexp_replace, col, udf, rand
+from pyspark.sql.types import IntegerType, StructField, StructType, BinaryType, StringType, ArrayType
+from subprocess import call
+from PIL import Image
+from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import StepLR
+from io import BytesIO
+from torchvision import models
+from pyspark.ml.torch.distributor import TorchDistributor
 
 class ImageTokenizer(torch.nn.Module):
     """
@@ -12,15 +22,24 @@ class ImageTokenizer(torch.nn.Module):
     """
     def __init__(self, num_channels=3, patch_size=16, embed_dim=768, image_size=224):
         super().__init__()
+        self.num_channels = num_channels
         self.patch_size = patch_size
         self.proj = torch.nn.Conv2d(num_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
-        # self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim))
+        self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim))
         self.pos_embed = torch.nn.Parameter(torch.randn(1, (image_size // patch_size) ** 2 + 1, embed_dim))
     
     def forward(self, x):
-        return self.proj(x).flatten(2).transpose(1, 2) + self.pos_embed
-
-
+        # x = Image.open(BytesIO(x))
+        # x = torchvision.transforms.functional.resize(x, (224, 224), antialias=True)
+        # x = torchvision.transforms.functional.to_tensor(x)
+        x = x.unsqueeze(0)
+        x = self.proj(x)
+        x = x.flatten(2).transpose(1, 2)
+        cls_tokens = self.cls_token.expand(x.size(0), -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+        pos_embed = self.pos_embed.expand(x.size(0), -1, -1)
+        x += pos_embed
+        return x
 
 def initialize_res18(device):
     """
@@ -76,6 +95,3 @@ def vision_transformer(device):
     """
     model = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT).to(device)
 
-if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    vision_transformer(device)
