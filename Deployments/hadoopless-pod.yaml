@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: master
+  labels:
+    k8s-app: pytorch
+spec:
+  # nodeSelector:
+  #   topology.kubernetes.io/region: us-east
+  #   topology.kubernetes.io/zone: mghpcc
+  containers:
+  - name: master
+    image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
+    resources:
+      limits:
+        memory: 16Gi
+        cpu: 8000m
+        nvidia.com/gpu: 2
+      requests:
+        memory: 16Gi
+        cpu: 8000m
+        nvidia.com/gpu: 2
+    command: ["bash", "-c"]
+    args: [
+      "apt-get install unzip -y; \
+       apt-get install zip -y; \
+       apt-get install libxcb-xinerama0 -y; \
+       apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
+       echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
+       echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
+       echo \"export KAGGLE_USERNAME=frankieocegueda\"; \
+       echo \"export KAGGLE_KEY=8b8e83a7172d890956df55679e21af23\"; \
+       echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
+       source /usr/local/miniconda3/bin/activate; \
+       conda install -c conda-forge transformers -y; \
+       conda install -c conda-forge diffusers -y; \
+       conda install seaborn -y; \
+       conda install matplotlib -y; \
+       conda install scikit-learn -y; \
+       conda install pyqt -y; \
+       echo \"y\"| pip install pyqt5; \
+       echo \"y\"| pip install kaggle; \
+       conda install -c conda-forge pillow -y; \
+       conda install -c conda-forge libxcb -y; \
+       echo \"y\" | pip install torchsummary ; \
+       mkdir -p /home/Codebase; \
+       echo 'Reloading bashrc'; \
+       . /root/.bashrc; \
+       . /etc/profile; \
+       /usr/sbin/sshd; \
+       echo 'Downloading Kaggle Dataset, Please Wait For This To Complete'; \
+       mkdir -p /home/AI_Human_Generated_Images; \
+       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -p /home; \
+       unzip /home/ai-vs-human-generated-dataset.zip -d /home/AI_Human_Generated_Images; \
+       rm -rf /home/ai-vs-human-generated-dataset.zip; \
+       echo 'Directories Set Up'; \
+       chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
+       tail -f /dev/null;
+       "
+    ]

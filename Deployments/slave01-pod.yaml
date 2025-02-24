@@ -19,8 +19,8 @@ spec:
   #   topology.kubernetes.io/region: us-west
   #   topology.kubernetes.io/zone: fullerton
   nodeSelector:
-    topology.kubernetes.io/region: us-west
-    topology.kubernetes.io/zone: humboldt
+    topology.kubernetes.io/region: us-central
+    topology.kubernetes.io/zone: unl
   volumes:
   - name: config-volume
     persistentVolumeClaim:
