@@ -28,8 +28,8 @@ spec:
        apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
        echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
        echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
-       echo \"export KAGGLE_USERNAME=frankieocegueda\"; \
-       echo \"export KAGGLE_KEY=8b8e83a7172d890956df55679e21af23\"; \
+       echo \"export KAGGLE_USERNAME=\"; \
+       echo \"export KAGGLE_KEY=\"; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda install -c conda-forge transformers -y; \
