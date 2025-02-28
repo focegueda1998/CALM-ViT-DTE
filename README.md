@@ -1,0 +1,5 @@
+### Data Curator and Model Dispatcher
+
+This computer vision project intends to discern real and fake images using a Vision Transformer. The code for the model as well as the distributed trainer for Apache Spark are provided in the /Codebase folder along with bash scripts to launch programs with spark-submit. /Docker-Build is intended for creating a new SparkTorch docker image and provides the configuration files necessary to run the dockerfile (though an image is already available in our container registrar). /Deployments created the nodes for a Spark cluster for use with the distributed trainer. The deployments files are specific to the NRP and are not intended for other services like AWS. Like /Codebase, /Deployments provide convienence scripts to quickly start and stop the cluster. 
+
+***Stay Tuned! A more detailed user guide will be created as the project approaches its completion.***
