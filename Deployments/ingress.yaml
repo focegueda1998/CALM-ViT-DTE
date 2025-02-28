@@ -10,17 +10,10 @@ spec:
   - host: hadoop-test.nrp-nautilus.io
     http:
       paths:
-      - path: /history
-        pathType: Prefix
-        backend:
-          service:
-            name: hadoop
-            port:
-              number: 18080
       - path: /
         pathType: Prefix
         backend:
           service:
             name: hadoop
             port:
-              number: 9870
+              number: 8080

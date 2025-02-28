@@ -79,16 +79,16 @@ sc = SparkContext.getOrCreate()
 spark = SparkSession.builder.getOrCreate()
 
 # List the contents of the user directory
-gateway = sc._gateway
-FileSystem = gateway.jvm.org.apache.hadoop.fs.FileSystem
-Configuration = gateway.jvm.org.apache.hadoop.conf.Configuration
-Path = gateway.jvm.org.apache.hadoop.fs.Path
-URI = gateway.jvm.java.net.URI
-conf = Configuration()
-fs = FileSystem.get(URI("hdfs://master:9000/"), conf)
-status = fs.listStatus(Path("/user/"))
-for file in status:
-    print(file.getPath().toString())
+# gateway = sc._gateway
+# FileSystem = gateway.jvm.org.apache.hadoop.fs.FileSystem
+# Configuration = gateway.jvm.org.apache.hadoop.conf.Configuration
+# Path = gateway.jvm.org.apache.hadoop.fs.Path
+# URI = gateway.jvm.java.net.URI
+# conf = Configuration()
+# fs = FileSystem.get(URI("hdfs://master:9000/"), conf)
+# status = fs.listStatus(Path("/user/"))
+# for file in status:
+#     print(file.getPath().toString())
 
 # Print the application ID
 print(f"Spark session created! Application ID: {sc.applicationId}")
@@ -101,13 +101,13 @@ Schema = StructType([
 ])
 
 # Get the paths of the batches, then parallelize them
-metadeta_df = spark.read.csv("/user/AI_Human_Generated_Images/train.csv", header=True, inferSchema=True) \
+metadeta_df = spark.read.csv("file:///config/AI_Human_Generated_Images/train.csv", header=True, inferSchema=True) \
                    .withColumn("file_name", regexp_replace("file_name",".*train_data/", "")).repartition(1)
 metadeta_df.show()
 r_or_f_df  = spark.read.format("binaryFile") \
                   .option("pathGlobFilter", "*.jpg") \
                   .option("recursiveFileLookup", False) \
-                  .load(f"/user/AI_Human_Generated_Images/train_data/") \
+                  .load(f"file:///config/AI_Human_Generated_Images/train_data/") \
                   .repartition(40) \
                   .withColumnRenamed("path", "file_name") \
                   .withColumn("file_name", regexp_replace("file_name", ".*train_data/", "")) \
@@ -120,9 +120,9 @@ dfs = r_or_f_df.randomSplit([0.1 for _ in range(10)], random.randint(0, 100))
 
 for i in range(10):
     dfs[i] = dfs[i].repartition(4).select("*").orderBy(rand())
-    dfs[i].write.mode("overwrite").parquet(f"/user/real_or_fake/batch_{i}")
+    dfs[i].write.mode("overwrite").parquet(f"file:///config/real_or_fake/batch_{i}")
     dfs[i].show()
-    r_or_f = spark.read.parquet(f"/user/real_or_fake/batch_{i}").rdd.map(lambda x: (x["label"], x["fileID"], x["data"]))
+    r_or_f = spark.read.parquet(f"file:///config/real_or_fake/batch_{i}").rdd.map(lambda x: (x["label"], x["fileID"], x["data"]))
     # showImage(r_or_f.first()[2], r_or_f.first()[1])
     with open(f"/home/Codebase/images/{r_or_f.first()[1]}.jpg", "wb") as file:
         file.write(r_or_f.first()[2])

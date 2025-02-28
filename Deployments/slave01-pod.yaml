@@ -19,8 +19,8 @@ spec:
   #   topology.kubernetes.io/region: us-west
   #   topology.kubernetes.io/zone: fullerton
   nodeSelector:
-    topology.kubernetes.io/region: us-central
-    topology.kubernetes.io/zone: unl
+      topology.kubernetes.io/region: us-west
+      topology.kubernetes.io/zone: fullerton
   volumes:
   - name: config-volume
     persistentVolumeClaim:
@@ -102,6 +102,8 @@ spec:
        echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
        echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda install -c conda-forge transformers -y; \
        conda install -c conda-forge diffusers -y; \

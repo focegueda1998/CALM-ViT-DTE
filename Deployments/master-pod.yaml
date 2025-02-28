@@ -20,7 +20,7 @@ spec:
   #   topology.kubernetes.io/zone: fullerton
   nodeSelector:
     topology.kubernetes.io/region: us-west
-    topology.kubernetes.io/zone: ucsd-sdsc-yu
+    topology.kubernetes.io/zone: fullerton
   volumes:
   - name: config-volume
     persistentVolumeClaim:
@@ -107,6 +107,9 @@ spec:
        echo \"export KAGGLE_USERNAME=\"; \
        echo \"export KAGGLE_KEY=\"; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
+       echo 'SPARK_WORKER_PORT=7078' >> /root/.bashrc; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda install -c conda-forge transformers -y; \
        conda install -c conda-forge diffusers -y; \
@@ -154,25 +157,28 @@ spec:
        bash /usr/local/kafka/bin/kafka-storage.sh format -t ${CLUSTER_UUID} -c /usr/local/kafka/config/kraft/server.properties; \
        bash /usr/local/kafka/bin/kafka-server-start.sh -daemon /usr/local/kafka/config/kraft/server.properties; \
        sleep 30; \
-       echo 'Starting HDFS and YARN'; \
-       hdfs namenode -format -force -nonInteractive; \
-       start-dfs.sh; \
-       start-yarn.sh; \
-       echo 'Setting Up Directories'; \
-       hadoop fs -mkdir /sparklog; \
-       hadoop fs -chmod 777 /sparklog; \
-       hadoop fs -mkdir /user; \
-       hadoop fs -chmod 777 /user; \
        echo 'Downloading Kaggle Dataset, Please Wait For This To Complete'; \
-       mkdir -p /home/AI_Human_Generated_Images; \
-       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -p /home; \
-       unzip /home/ai-vs-human-generated-dataset.zip -d /home/AI_Human_Generated_Images; \
-       rm -rf /home/ai-vs-human-generated-dataset.zip; \
+       mkdir -p /config/AI_Human_Generated_Images; \
+       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -p /config; \
+       unzip /config/ai-vs-human-generated-dataset.zip -d /config/AI_Human_Generated_Images; \
+       rm -rf /config/ai-vs-human-generated-dataset.zip; \
        echo 'Dataset Downloaded'; \
-       hadoop fs -put /home/AI_Human_Generated_Images /user; \
-       rm -rf /home/AI_Human_Generated_Images; \
-       echo 'Directories Set Up'; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
+       ./usr/local/spark/sbin/start-all.sh --host master --port 7077; \
        tail -f /dev/null;
        "
     ]
+
+#        echo 'Starting HDFS and YARN'; \
+#        hdfs namenode -format -force -nonInteractive; \
+#        start-dfs.sh; \
+#        start-yarn.sh; \
+#        echo 'Setting Up Directories'; \
+#        hadoop fs -mkdir /sparklog; \
+#        hadoop fs -chmod 777 /sparklog; \
+#        hadoop fs -mkdir /user; \
+#        hadoop fs -chmod 777 /user; \
+
+#        hadoop fs -put /home/AI_Human_Generated_Images /user; \
+#        rm -rf /home/AI_Human_Generated_Images; \
+#        echo 'Directories Set Up'; \

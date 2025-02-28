@@ -1,82 +1,68 @@
 import torch
 import torchvision
 import torch.optim as optim
-import numpy as np
 import torchvision.transforms.functional
-from time import time
-from subprocess import call
+import random
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import StepLR
 import csv
-from io import BytesIO
-from torchvision import models, datasets
-import torch.distributed as dist
+from torchvision import models
 
-# class ImageTokenizer(torch.nn.Module):
-#     """
-#     Image Tokenizer class for the Vision Transformer model.
-#     """
-#     def __init__(self, device, num_channels=3, patch_size=16, embed_dim=768, image_size=224):
-#         super().__init__()
-#         self.num_channels = num_channels
-#         self.patch_size = patch_size
-#         self.device = device
-#         self.proj = torch.nn.Conv2d(num_channels, embed_dim, kernel_size=patch_size, stride=patch_size).to(device)
-#         self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim)).to(device)
-#         self.pos_embed = torch.nn.Parameter(torch.randn(1, (image_size // patch_size) ** 2 + 1, embed_dim)).to(device)
-    
-#     def forward(self, x):
-#         x = Image.open(BytesIO(x))
-#         x = torchvision.transforms.functional.resize(x, (224, 224), antialias=True)
-#         x = torchvision.transforms.functional.to_tensor(x).to(self.device)
-#         x = x.unsqueeze(0)
-#         x = self.proj(x)
-#         x = x.flatten(2).transpose(1, 2)
-#         cls_tokens = self.cls_token.expand(x.size(0), -1, -1)
-#         x = torch.cat((cls_tokens, x), dim=1)
-#         pos_embed = self.pos_embed.expand(x.size(0), -1, -1)
-#         x += pos_embed
-#         return x
-
-class ViT(torch.nn.Module):  # Inherit from nn.Module
-    def __init__(self, device, in_features=1024, out_features=1):  # Pass device, in_features, out_features
-        super().__init__()  # Call super().__init__()
+class ViT(torch.nn.Module):
+    def __init__(self, device, in_features=1024, out_features=1): 
+        super().__init__()
         self.device = device
         self.vit = models.vit_l_16(weights=models.ViT_L_16_Weights.DEFAULT).to(device)
-
-        # Freeze all the parameters
+        self.vit.num_classes = out_features
         for param in self.vit.parameters():
             param.requires_grad = False
-
-        # Modify the classifier head
         self.vit.heads = torch.nn.Sequential(
             torch.nn.Linear(in_features, out_features, bias=True).to(device)
         )
 
     def forward(self, x):
-        x = self.vit(x)  # Pass the image directly to the ViT model
+        x = self.vit.conv_proj(x)
+        x = x.flatten(2).transpose(1,2)
+        batch_size, seq_len, _ = x.shape
+        cls_token = self.vit.class_token.expand(batch_size, -1, -1)
+        x = torch.cat((cls_token, x), dim = 1)
+        x += self.vit.encoder.pos_embedding[:, : (seq_len + 1), :]
+        x = self.vit.encoder.dropout(x)
+        for i in range(len(self.vit.encoder.layers) - 2):
+            x = self.vit.encoder.layers[i](x)
+        x = self.vit.encoder.layers[-1](x)
+        x = self.vit.encoder.ln(x)
+        cls_output = x[:, 0]
+        x = self.vit.heads(cls_output)
         return x
 
 class ImageDataset(Dataset):
-    def __init__(self, root_dir, csv_file, transform=None):
+    def __init__(self, root_dir, csv_file, transform=None, split_ratio=0.8, train=True):
         self.data = []
+        self.train = train
         with open(root_dir + csv_file, 'r') as file:
             reader = csv.reader(file)
             reader.__next__() # Skip the header
             for row in reader:
                 self.data.append(row)
+            random.shuffle(self.data)
+        self.split = int(split_ratio * len(self.data))
         self.root_dir = root_dir
         self.transform = transform
 
     def __len__(self):
-        return len(self.data)
+        return len(self.data[:self.split]) if self.train else len(self.data[self.split:])
 
     def __getitem__(self, idx):
-        img_name = "/home/AI_Human_Generated_Images/"+ self.data[idx][1]
+        data = self.data[:self.split] if self.train else self.data[self.split:]
+        img_name = "/config/AI_Human_Generated_Images/"+ data[idx][1]
         image = self.transform(Image.open(img_name))
-        label = torch.tensor(int(self.data[idx][2]))
+        label = torch.tensor(int(data[idx][2]))
         return image, label
+
+    def reshuffle(self):
+        random.shuffle(self.data)
 
 def initialize_res18(device):
     """
@@ -144,14 +130,17 @@ if __name__ == '__main__':
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224)),
         torchvision.transforms.ToTensor(),
-        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0]==1 else x)
+        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
     ])
 
-    dataset = ImageDataset("/home/AI_Human_Generated_Images/", "train.csv", transform=transform)
+    dataset = ImageDataset("/home/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
     dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
 
-    model.train()
     for epoch in range(1):
+        dataset.reshuffle()
+        dataset.train = True
+        dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+        model.train()
         for i, (x, y) in enumerate(dataloader):
             x = x.to(device)
             y = y.to(device)
@@ -168,3 +157,26 @@ if __name__ == '__main__':
                 if pred == y.float()[j]:
                     predicted += 1
             print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Predicted: {predicted}/{len(y_pred)}")
+
+        dataset.train = False
+        dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+        model.eval()
+        with torch.no_grad():
+            for i, (x, y) in enumerate(dataloader):
+                x = x.to(device)
+                y = y.to(device)
+                y_hat = model(x)
+                y_prob = torch.sigmoid(y_hat)
+                y_pred = (y_prob > 0.5).float()
+                y_pred = y_pred.squeeze().tolist()
+                predicted = 0
+                for j, pred in enumerate(y_pred):
+                    if pred == y.float()[j]:
+                        predicted += 1
+                print(f"Epoch {epoch}, Batch {i}, Predicted: {predicted}/{len(y_pred)}")
+
+        transform = torchvision.transforms.Compose([
+        torchvision.transforms.Resize((224, 224)),
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
+    ])
