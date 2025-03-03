@@ -83,13 +83,10 @@ def initialize_res18(device):
     for param in model.parameters():
         param.requires_grad = False
 
-    num_classes = 10
+    num_classes = 2
     model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
 
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
-
-    return model, optimizer, scheduler
+    return model
 
 def initialize_res50(device):
     """
@@ -99,7 +96,7 @@ def initialize_res50(device):
 
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT).to(device)
 
-    num_classes = 10
+    num_classes = 2
     model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
 
     for param in model.parameters():
@@ -113,11 +110,7 @@ def initialize_res50(device):
             for param in module.parameters():
                 param.requires_grad = True
 
-    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
-
-
-    return model, optimizer, scheduler
+    return model
 
 def initialize_vit(device, weights: str="DEFAULT"):
     """
@@ -128,7 +121,7 @@ def initialize_vit(device, weights: str="DEFAULT"):
     #! Add more pretrained weights later.
     match weights:
         case "DEFAULT":
-            model = ViT(device, weights=models.ViT_B_16_Weights.DEFAULT).to(device)
+            model = ViT(device, weights=models.ViT_L_16_Weights.DEFAULT).to(device)
         case "", None:
             model = ViT(device).to(device)
         case _:
@@ -137,14 +130,14 @@ def initialize_vit(device, weights: str="DEFAULT"):
                 model.load_state_dict(torch.load(weights, weights_only=True))
             except:
                 print("Could not load the weights. No weights loaded.")
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
-    criterion = torch.nn.BCEWithLogitsLoss()
-    return model, optimizer, scheduler, criterion
+    return model
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, optimizer, scheduler, criterion = initialize_vit(device)
+    model = initialize_vit(device)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
+    criterion = torch.nn.BCEWithLogitsLoss()
     print(model)
 
     transform = torchvision.transforms.Compose([
