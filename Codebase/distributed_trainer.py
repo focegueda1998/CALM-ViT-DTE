@@ -72,9 +72,9 @@ def train(initializer, optimizer, scheduler, criterion,
             print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: {global_rank}, Loss: {loss}, Predicted: {int(predicted)}/{len(y_pred)}")
         if scheduler is not None:
             scheduler.step()
-        # if global_rank == 0 and (epoch + 1 % 4 == 0 or epoch + 1 == epochs or epoch == 0):
-        #     torch.save(model.state_dict(), "/config/Codebase/models/model.pth")
-        #     print("Model saved to /config/Codebase/models/model.pth")
+        if global_rank == 0 and ((epoch + 1) % 4 == 0 or epoch + 1 == epochs or epoch == 0):
+            torch.save(model.module.state_dict(), "/config/Codebase/models/model.pth")
+            print("Model saved to /config/Codebase/models/model.pth")
     model = model.to("cpu")
     dist.destroy_process_group()
     return model.module, attention_map
@@ -102,9 +102,11 @@ if __name__ == "__main__":
         criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=20,
+        epochs=16,
         batch_size=128
     )
+    torch.save(model.state_dict(), "/config/Codebase/models/model.pth")
+    print("Model saved to /config/Codebase/models/model.pth")
     print(f"Attention map shape: {attention_map.shape}")
     print(f"Attention map type: {attention_map.dtype}")
     try:

@@ -128,8 +128,8 @@ def initialize_vit(device, weights: str="DEFAULT"):
             model = ViT(device)
             try:
                 model.load_state_dict(torch.load(weights, weights_only=True))
-            except:
-                print("Could not load the weights. No weights loaded.")
+            except Exception as e:
+                print(f"Could not load the weights due to {e}. No weights loaded.")
     return model
 
 if __name__ == '__main__':
