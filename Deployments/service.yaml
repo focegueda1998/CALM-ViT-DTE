@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: hadoop
+  name: spark-torch
   labels:
-    k8s-app: hadoop
+    k8s-app: spark-torch
 spec:
   selector:
-    k8s-app: hadoop
+    k8s-app: spark-torch
   ports:
   - name: nodemanager
     protocol: TCP

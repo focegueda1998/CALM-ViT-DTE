@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: master
   labels:
-    k8s-app: hadoop
+    k8s-app: spark-torch
 spec:
   # affinity:
   #  nodeAffinity:
@@ -13,11 +13,7 @@ spec:
   #        - key: nvidia.com/gpu.product
   #          operator: In
   #          values:
-  #           - NVIDIA-L4
-  #           - NVIDIA-GeForce-RTX-3090
-  # nodeSelector:
-  #   topology.kubernetes.io/region: us-west
-  #   topology.kubernetes.io/zone: fullerton
+  #           - NVIDIA-GeForce-RTX-2080-Ti
   nodeSelector:
     topology.kubernetes.io/region: us-west
     topology.kubernetes.io/zone: fullerton
@@ -30,7 +26,7 @@ spec:
     image: busybox
     command: ["sh", "-c"]
     args:
-      - "echo $(hostname -i) > /config/master_ip"
+      - "echo $(hostname -i)\tmaster >> /config/ips"
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -129,23 +125,13 @@ spec:
        /usr/sbin/sshd; \
        echo 'Checking for NVIDIA devices'; \
        if ls /dev | grep -q 'nvidia[0-9]*'; then \
-         echo 'NVIDIA devices found, appending configuration to container-executor.cfg'; \
-         echo '[docker]' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
-          echo \"docker.allowed.devices=/dev/nvidia-uvm,/dev/nvidia-uvm-tools,$(ls /dev | grep 'nvidia[0-9]*' | tr '\n' ',' | sed 's/,$//'),/dev/nvidiactl\" >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
-         echo 'docker.allowed.ro-mounts=nvidia_driver_550.127.05' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
-         echo 'docker.allowed.runtimes=nvidia' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+         echo 'NVIDIA devices found!'; \
        else \
          echo 'NVIDIA devices not found'; \
        fi; \
        sleep 30; \
        echo 'Fetching node IPs and updating /etc/hosts'; \
-       export MASTER_IP=$(hostname -i); \
-       export SLAVE01_IP=$(cat /config/slave01_ip); \
-       export SLAVE02_IP=$(cat /config/slave02_ip); \
-       export SLAVE03_IP=$(cat /config/slave03_ip); \
-       echo $SLAVE01_IP slave01 >> /etc/hosts; \
-       echo $SLAVE02_IP slave02 >> /etc/hosts; \
-       echo $SLAVE03_IP slave03 >> /etc/hosts; \
+       cat /config/ips >> /etc/hosts; \
        echo 'Updated /etc/hosts'; \
        sleep 15; \
        echo 'Starting Kafka Broker'; \
@@ -169,6 +155,9 @@ spec:
        "
     ]
 
+##?###########################################?##
+###? Use this snippet to start HDFS and YARN ?###
+##?###########################################?##
 #        echo 'Starting HDFS and YARN'; \
 #        hdfs namenode -format -force -nonInteractive; \
 #        start-dfs.sh; \
@@ -178,7 +167,6 @@ spec:
 #        hadoop fs -chmod 777 /sparklog; \
 #        hadoop fs -mkdir /user; \
 #        hadoop fs -chmod 777 /user; \
-
 #        hadoop fs -put /home/AI_Human_Generated_Images /user; \
 #        rm -rf /home/AI_Human_Generated_Images; \
 #        echo 'Directories Set Up'; \

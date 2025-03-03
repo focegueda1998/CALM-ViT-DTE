@@ -3,21 +3,17 @@ kind: Pod
 metadata:
   name: slave02
   labels:
-    k8s-app: hadoop
+    k8s-app: spark-torch
 spec:
   # affinity:
-  #   nodeAffinity:
-  #     requiredDuringSchedulingIgnoredDuringExecution:
-  #       nodeSelectorTerms:
-  #       - matchExpressions:
-  #         - key: nvidia.com/gpu.product
-  #           operator: In
-  #           values:
-  #           - NVIDIA-L4
-  #           - NVIDIA-GeForce-RTX-3090
-  # nodeSelector:
-  #   topology.kubernetes.io/region: us-west
-  #   topology.kubernetes.io/zone: fullerton
+  #  nodeAffinity:
+  #    requiredDuringSchedulingIgnoredDuringExecution:
+  #      nodeSelectorTerms:
+  #      - matchExpressions:
+  #        - key: nvidia.com/gpu.product
+  #          operator: In
+  #          values:
+  #           - NVIDIA-GeForce-RTX-2080-Ti
   nodeSelector:
     topology.kubernetes.io/region: us-west
     topology.kubernetes.io/zone: fullerton
@@ -30,7 +26,7 @@ spec:
     image: busybox
     command: ["sh", "-c"]
     args:
-      - "echo $(hostname -i) > /config/slave02_ip"
+      - "echo $(hostname -i)\tslave02 >> /config/ips"
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -114,28 +110,20 @@ spec:
        echo \"y\"| pip install pyqt5; \
        conda install -c conda-forge libxcb -y; \
        conda install -c conda-forge pillow -y; \
-       echo \"y\" | pip install torchsummary ; \
+       echo \"y\" | pip install torchsummary; \
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \
+       . /etc/profile; \
        /usr/sbin/sshd; \
        echo 'Checking for NVIDIA devices'; \
        if ls /dev | grep -q 'nvidia[0-9]*'; then \
-         echo 'NVIDIA devices found, appending configuration to container-executor.cfg'; \
-         echo '[docker]' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
-         echo \"docker.allowed.devices=/dev/nvidia-uvm,/dev/nvidia-uvm-tools,$(ls /dev | grep 'nvidia[0-9]*' | tr '\n' ',' | sed 's/,$//'),/dev/nvidiactl\" >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
-         echo 'docker.allowed.ro-mounts=nvidia_driver_550.127.05' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
-         echo 'docker.allowed.runtimes=nvidia' >> $HADOOP_HOME/etc/hadoop/container-executor.cfg; \
+         echo 'NVIDIA devices found!'; \
        else \
          echo 'NVIDIA devices not found'; \
        fi; \
        sleep 30; \
        echo 'Fetching node IPs and updating /etc/hosts'; \
-       export MASTER_IP=$(cat /config/master_ip); \
-       export SLAVE01_IP=$(cat /config/slave01_ip); \
-       export SLAVE03_IP=$(cat /config/slave03_ip); \
-       echo $MASTER_IP master >> /etc/hosts; \
-       echo $SLAVE01_IP slave01 >> /etc/hosts; \
-       echo $SLAVE03_IP slave03 >> /etc/hosts; \
+       cat /config/ips >> /etc/hosts; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        echo 'Updated /etc/hosts'; \
        sleep 15; \
@@ -149,4 +137,4 @@ spec:
        bash /usr/local/kafka/bin/kafka-server-start.sh -daemon /usr/local/kafka/config/kraft/server.properties; \
        echo 'awaiting for master to start'; \
        tail -f /dev/null; "
-    ] 
+    ]

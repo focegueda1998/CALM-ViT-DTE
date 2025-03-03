@@ -31,7 +31,7 @@ spec:
        echo \"export KAGGLE_USERNAME=\"; \
        echo \"export KAGGLE_KEY=\"; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
-        echo \"\" >> /root/.bashrc; \
+       echo \"\" >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda install -c conda-forge transformers -y; \
        conda install -c conda-forge diffusers -y; \

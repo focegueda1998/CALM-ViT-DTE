@@ -49,7 +49,7 @@ def train(initializer, use_gpu=True, dataset=None, epochs=15, batch_size=128):
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
-            y_hat = model(x)
+            y_hat, _ = model(x)
             y = y.float()
             loss = criterion(y_hat.squeeze(), y)
             loss.backward()
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights="/config/model.pth")
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224)),
         torchvision.transforms.ToTensor(),
@@ -83,6 +83,10 @@ if __name__ == "__main__":
         train,
         model,
         use_gpu=True,
-        dataset=dataset
+        dataset=dataset,
+        epochs=1,
+        batch_size=256
     )
+    torch.save(model.state_dict(), "/config/model.pth")
+    print("Model saved to /config/model.pth")
     sc.stop()

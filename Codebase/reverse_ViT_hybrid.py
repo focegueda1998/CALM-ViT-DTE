@@ -10,10 +10,10 @@ import csv
 from torchvision import models
 
 class ViT(torch.nn.Module):
-    def __init__(self, device, in_features=1024, out_features=1): 
+    def __init__(self, device, weights=None, in_features=1024, out_features=1): 
         super().__init__()
         self.device = device
-        self.vit = models.vit_l_16(weights=models.ViT_L_16_Weights.DEFAULT).to(device)
+        self.vit = models.vit_l_16(weights=weights).to(device)
         self.vit.num_classes = out_features
         for param in self.vit.parameters():
             param.requires_grad = False
@@ -22,6 +22,7 @@ class ViT(torch.nn.Module):
         )
 
     def forward(self, x):
+        attention_maps = []
         x = self.vit.conv_proj(x)
         x = x.flatten(2).transpose(1,2)
         batch_size, seq_len, _ = x.shape
@@ -29,13 +30,20 @@ class ViT(torch.nn.Module):
         x = torch.cat((cls_token, x), dim = 1)
         x += self.vit.encoder.pos_embedding[:, : (seq_len + 1), :]
         x = self.vit.encoder.dropout(x)
-        for i in range(len(self.vit.encoder.layers) - 2):
-            x = self.vit.encoder.layers[i](x)
-        x = self.vit.encoder.layers[-1](x)
+        for layer in self.vit.encoder.layers:
+            y = x
+            x = layer.ln_1(x)
+            x, attention_map = layer.self_attention(x, x, x, need_weights=True)
+            attention_maps.append(attention_map)
+            x = layer.dropout(x)
+            x = x + y
+            y = layer.ln_2(x)
+            y = layer.mlp(y)
+            x = x + y
         x = self.vit.encoder.ln(x)
         cls_output = x[:, 0]
         x = self.vit.heads(cls_output)
-        return x
+        return x, attention_maps[-1]
 
 class ImageDataset(Dataset):
     def __init__(self, root_dir, csv_file, transform=None, split_ratio=0.8, train=True):
@@ -111,12 +119,24 @@ def initialize_res50(device):
 
     return model, optimizer, scheduler
 
-def initialize_vit(device):
+def initialize_vit(device, weights: str="DEFAULT"):
     """
     Initialize the model and optimizer.
     The function sets up the model and optimizer, then returns both.
     """
-    model = ViT(device)
+    model = None
+    #! Add more pretrained weights later.
+    match weights:
+        case "DEFAULT":
+            model = ViT(device, weights=models.ViT_B_16_Weights.DEFAULT).to(device)
+        case "", None:
+            model = ViT(device).to(device)
+        case _:
+            model = ViT(device)
+            try:
+                model.load_state_dict(torch.load(weights, weights_only=True))
+            except:
+                print("Could not load the weights. No weights loaded.")
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.BCEWithLogitsLoss()
@@ -133,7 +153,7 @@ if __name__ == '__main__':
         torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
     ])
 
-    dataset = ImageDataset("/home/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
+    dataset = ImageDataset("/config/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
     dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     for epoch in range(1):
@@ -145,7 +165,7 @@ if __name__ == '__main__':
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
-            y_hat = model(x)
+            y_hat, _ = model(x)
             loss = criterion(y_hat.squeeze(), y.float()) # The labels need to be floating point
             loss.backward()
             optimizer.step()
@@ -174,9 +194,3 @@ if __name__ == '__main__':
                     if pred == y.float()[j]:
                         predicted += 1
                 print(f"Epoch {epoch}, Batch {i}, Predicted: {predicted}/{len(y_pred)}")
-
-        transform = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((224, 224)),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
-    ])

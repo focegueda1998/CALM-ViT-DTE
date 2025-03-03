@@ -1,19 +1,19 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-    name: hadoop-ingress
+    name: spark-ingress
     namespace: csuf-cpsc531-hadoop-test
     annotations:
       kubernetes.io/ingress.class: "haproxy"
 spec:
   rules:
-  - host: hadoop-test.nrp-nautilus.io
+  - host: spark-test.nrp-nautilus.io
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: hadoop
+            name: spark-webui
             port:
               number: 8080
