@@ -10,8 +10,8 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.driver.cores=2 \
        --conf spark.executor.memory=16G \
        --conf spark.executor.instances=4 \
-       --conf spark.executor.cores=8 \
-       --conf spark.task.cpus=8 \
+       --conf spark.executor.cores=6 \
+       --conf spark.task.cpus=6 \
        --conf spark.files.overwrite=true \
        --conf spark.task.resource.gpu.amount=1 \
        --conf spark.eventLog.enabled=false \
@@ -23,4 +23,4 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.scheduler.barrier.maxConcurrentTasksCheck.maxFailures=1 \
        --files ${SPARK_RAPIDS_DIR}/getGpusResources.sh \
        --py-files file:///config/Codebase/reverse_ViT_hybrid.py \
-       distributed_trainer.py;
+       /config/Codebase/distributed_trainer.py;

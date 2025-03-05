@@ -14,6 +14,7 @@ from pyspark.sql import SparkSession
 from pyspark.ml.torch.distributor import TorchDistributor
 from subprocess import call
 import torchvision
+import sys
 
 def train(initializer, optimizer, scheduler, criterion,
           use_gpu=True, dataset=None, epochs=15, batch_size=128):
@@ -40,14 +41,14 @@ def train(initializer, optimizer, scheduler, criterion,
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    scheduler = StepLR(optimizer, step_size=4, gamma=0.5)
+    # scheduler = StepLR(optimizer, step_size=4, gamma=0.5)
     model = initializer
     model = model.to(device)
-    model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+    model = DDP(model, device_ids=[local_rank], output_device=local_rank, )
     sampler = DistributedSampler(dataset, shuffle=True)
     sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, pin_memory=True)
-    attention_map = None
+    attention_maps = None
     model.train()
     for epoch in range(epochs):
         sampler.set_epoch(epoch)
@@ -60,7 +61,7 @@ def train(initializer, optimizer, scheduler, criterion,
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
-            y_hat, attention_map = model(x)
+            y_hat, attention_maps = model(x)
             y = y.float()
             loss = criterion(y_hat.squeeze(), y)
             loss.backward()
@@ -70,31 +71,31 @@ def train(initializer, optimizer, scheduler, criterion,
             y_pred = (y_prob > 0.5).float().squeeze()
             predicted = (y_pred == y).float().sum()
             print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: {global_rank}, Loss: {loss}, Predicted: {int(predicted)}/{len(y_pred)}")
-        if scheduler is not None:
-            scheduler.step()
-        if global_rank == 0 and ((epoch + 1) % 4 == 0 or epoch + 1 == epochs or epoch == 0):
+        # if scheduler is not None:
+        #     scheduler.step()
+        if global_rank == 0 and ((epoch + 1) % 3 == 0):
             torch.save(model.module.state_dict(), "/config/Codebase/models/model.pth")
             print("Model saved to /config/Codebase/models/model.pth")
     model = model.to("cpu")
     dist.destroy_process_group()
-    return model.module, attention_map
+    return model.module, attention_maps
 
 if __name__ == "__main__":
     call(['mkdir', '-p', '/config/Codebase/models'])
+    call(['mkdir', '-p', '/config/Codebase/samples'])
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights="DEFAULT")
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights="/config/Codebase/models/model.pth")
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224)),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
     ])
     opt = optim.Adam(model.parameters(), lr=0.001)
-    sched = StepLR(opt, step_size=4, gamma=0.5)
     crit = torch.nn.BCEWithLogitsLoss()
     dataset = rvh.ImageDataset("/config/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
-    model, attention_map = distributor.run(
+    model, attention_maps = distributor.run(
         train,
         model,
         optimizer=opt,
@@ -102,23 +103,17 @@ if __name__ == "__main__":
         criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=16,
-        batch_size=128
+        epochs=7,
+        batch_size=36
     )
     torch.save(model.state_dict(), "/config/Codebase/models/model.pth")
-    print("Model saved to /config/Codebase/models/model.pth")
-    print(f"Attention map shape: {attention_map.shape}")
-    print(f"Attention map type: {attention_map.dtype}")
     try:
-        full_attention = attention_map[0]  # First sample, full attention matrix
-        full_attention = torch.nn.functional.normalize(full_attention, p=1, dim=1)
-        full_attention = full_attention.mul(255).clamp(0, 255).byte()
-        plt.figure(figsize=(10, 10))
-        plt.imshow(full_attention.cpu().detach().numpy(), cmap='viridis')
-        plt.colorbar()
-        plt.title('Full Attention Matrix')
-        plt.savefig("full_attention_matrix.jpg")
-        plt.close()
+        for i, attention_map in enumerate(attention_maps):
+            full_attention = torch.nn.functional.normalize(attention_map[1:, 1:], eps=sys.float_info.min, dim=1)
+            full_attention_1 = full_attention.cpu().detach().numpy()
+            Image.fromarray((full_attention_1 * 255).astype(np.uint8)).save(f"/config/Codebase/samples/sample_attention_{i}.jpg")
+            full_attention_2 = full_attention.mean(dim=0).reshape(14, 14).cpu().detach().numpy()
+            Image.fromarray((full_attention_2 * 255).astype(np.uint8)).save(f"/config/Codebase/samples/sample_image_{i}.jpg")
     except Exception as e:
         print(f"Something went wrong: {e}")
     sc.stop()

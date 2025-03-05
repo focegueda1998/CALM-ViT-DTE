@@ -16,7 +16,7 @@ class ViT(torch.nn.Module):
         self.vit = models.vit_l_16(weights=weights).to(device)
         self.vit.num_classes = out_features
         for param in self.vit.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
         self.vit.heads = torch.nn.Sequential(
             torch.nn.Linear(in_features, out_features, bias=True).to(device)
         )
