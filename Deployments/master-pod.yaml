@@ -100,8 +100,8 @@ spec:
        apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
        echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
        echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
-       echo \"export KAGGLE_USERNAME=frankieocegueda\"; \
-       echo \"export KAGGLE_KEY=64629e32c4faf9f8ed97aa1862ea4c4b\"; \
+       echo \"export KAGGLE_USERNAME=\"; \
+       echo \"export KAGGLE_KEY=\"; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        echo 'SPARK_WORKER_PORT=7078' >> /root/.bashrc; \
        echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
