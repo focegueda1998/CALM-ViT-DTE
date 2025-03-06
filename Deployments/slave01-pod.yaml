@@ -36,11 +36,11 @@ spec:
     resources:
       limits:
         memory: 24Gi
-        cpu: 10000m
+        cpu: 8000m
         nvidia.com/gpu: 1
       requests:
         memory: 24Gi
-        cpu: 10000m
+        cpu: 8000m
         nvidia.com/gpu: 1
     ports:
     - containerPort: 8088

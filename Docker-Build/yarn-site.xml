@@ -82,26 +82,6 @@
         <name>yarn.nodemanager.resource.cpu-vcores</name>
         <value>10</value> <!-- 10 cores -->
     </property>
-    <!-- Yarn Resource configuration, May need to play around with these incase our container
-    cannot properly allocate resoureces-->
-    <!--
-    <property>
-        <name>yarn.nodemanager.resource.memory-mb</name>
-        <value>2048</value>
-    </property>
-    <property>
-        <name>yarn.scheduler.maximum-allocation-mb</name>
-        <value>2048</value>
-    </property>
-    <property>
-        <name>yarn.nodemanager.resource.cpu-vcores</name>
-        <value>2</value>
-    </property>
-    <property>
-        <name>yarn.scheduler.maximum-allocation-vcores</name>
-        <value>2</value>
-    </property>
-    -->
     <!-- CGroups configuration, Broken for now since Yarn on Ubuntu 24.04 does not support 
          cgroupsv2 for GPU isolation, make sure GPU is set with EXCLUSIVE_PROCESS mode:
          ' nvidia-smi -c EXCLUSIVE_PROCESS -i $index '' -->
