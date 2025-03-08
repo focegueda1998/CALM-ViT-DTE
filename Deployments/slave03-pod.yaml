@@ -37,11 +37,11 @@ spec:
       limits:
         memory: 24Gi
         cpu: 8000m
-        nvidia.com/gpu: 1
+        nvidia.com/gpu: 2
       requests:
         memory: 24Gi
         cpu: 8000m
-        nvidia.com/gpu: 1
+        nvidia.com/gpu: 2
     ports:
     - containerPort: 8088
       hostPort: 8088
@@ -98,8 +98,8 @@ spec:
        echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
        echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda install -c conda-forge transformers -y; \
        conda install -c conda-forge diffusers -y; \

@@ -10,7 +10,7 @@ spec:
   - host: spark-test.nrp-nautilus.io
     http:
       paths:
-      - path: /
+      - path: /UI
         pathType: Prefix
         backend:
           service:

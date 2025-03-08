@@ -37,11 +37,11 @@ spec:
       limits:
         memory: 24Gi
         cpu: 8000m
-        nvidia.com/gpu: 1
+        nvidia.com/gpu: 2
       requests:
         memory: 24Gi
         cpu: 8000m
-        nvidia.com/gpu: 1
+        nvidia.com/gpu: 2
     ports:
     - containerPort: 8088
       hostPort: 8088
@@ -104,8 +104,8 @@ spec:
        echo \"export KAGGLE_KEY=\"; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        echo 'SPARK_WORKER_PORT=7078' >> /root/.bashrc; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda install -c conda-forge transformers -y; \
        conda install -c conda-forge diffusers -y; \
@@ -151,6 +151,7 @@ spec:
        echo 'Dataset Downloaded'; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        ./usr/local/spark/sbin/start-all.sh --host master --port 7077; \
+       echo 'Cluster Started'; \
        sleep 30; \
        echo 'TRAINING'; \
        bash /config/Codebase/train.sh; \
@@ -178,7 +179,3 @@ spec:
 ##?###########################################?##
 ###? Use this snippet to start model trainer ?###
 ##?###########################################?##
-      #  sleep 30; \
-      #  echo 'TRAINING'; \
-      #  bash /config/Codebase/train.sh; \
-      #  echo 'TRAINING HAS ENDED'; \
