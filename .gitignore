@@ -1,1 +1,7 @@
 Codebase-*
+Codebase/samples
+Codebase/__pycache__
+Codebase/models
+*.tar.gz
+*.tgz
+*.jar
