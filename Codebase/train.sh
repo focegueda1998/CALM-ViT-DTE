@@ -7,11 +7,11 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.plugins="" \
        --conf spark.driver.resource.gpu.amount=0 \
        --conf spark.driver.resource.gpu.discoveryScript=${SPARK_RAPIDS_DIR}/getGpusResources.sh \
-       --conf spark.driver.cores=2 \
-       --conf spark.executor.memory=16G \
-       --conf spark.executor.instances=4 \
-       --conf spark.executor.cores=6 \
-       --conf spark.task.cpus=6 \
+       --conf spark.driver.cores=6 \
+       --conf spark.executor.memory=11G \
+       --conf spark.executor.instances=8 \
+       --conf spark.executor.cores=3 \
+       --conf spark.task.cpus=3 \
        --conf spark.files.overwrite=true \
        --conf spark.task.resource.gpu.amount=1 \
        --conf spark.eventLog.enabled=false \

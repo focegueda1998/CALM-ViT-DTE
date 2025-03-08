@@ -1,4 +1,5 @@
 import os
+from time import time
 import torch
 import random
 import matplotlib.pyplot as plt
@@ -15,6 +16,18 @@ from pyspark.ml.torch.distributor import TorchDistributor
 from subprocess import call
 import torchvision
 import sys
+
+parent_dir = "/config"
+
+def save_samples(batch, attention_maps):
+    try:
+        for i, attention_map in enumerate(attention_maps):
+            sample = batch[i].permute(1, 2, 0).cpu().detach().numpy()
+            Image.fromarray((sample * 255).astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample.jpg")
+            full_attention = attention_map.mul(255).clamp(0, 255).reshape(14, 14).cpu().detach().numpy()
+            Image.fromarray(full_attention.astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample_attn.jpg")
+    except Exception as e:
+        print(f"Something went wrong: {e}")
 
 def train(initializer, optimizer, scheduler, criterion,
           use_gpu=True, dataset=None, epochs=15, batch_size=128):
@@ -41,14 +54,15 @@ def train(initializer, optimizer, scheduler, criterion,
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    # scheduler = StepLR(optimizer, step_size=4, gamma=0.5)
+    scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
     model = initializer
     model = model.to(device)
-    model = DDP(model, device_ids=[local_rank], output_device=local_rank, )
+    model = DDP(model, device_ids=[local_rank], output_device=local_rank)
     sampler = DistributedSampler(dataset, shuffle=True)
     sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, pin_memory=True)
     attention_maps = None
+    batch = None
     model.train()
     for epoch in range(epochs):
         sampler.set_epoch(epoch)
@@ -58,6 +72,7 @@ def train(initializer, optimizer, scheduler, criterion,
         predicted = 0
         model.train()
         for i, (x, y) in enumerate(dataloader):
+            batch = x
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
@@ -70,32 +85,34 @@ def train(initializer, optimizer, scheduler, criterion,
             y_prob = torch.sigmoid(y_hat)
             y_pred = (y_prob > 0.5).float().squeeze()
             predicted = (y_pred == y).float().sum()
-            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: {global_rank}, Loss: {loss}, Predicted: {int(predicted)}/{len(y_pred)}")
-        # if scheduler is not None:
-        #     scheduler.step()
-        if global_rank == 0 and ((epoch + 1) % 3 == 0):
-            torch.save(model.module.state_dict(), "/config/Codebase/models/model.pth")
-            print("Model saved to /config/Codebase/models/model.pth")
+            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Predicted: {int(predicted)}/{len(y_pred)}")
+        if scheduler is not None:
+            scheduler.step()
+        if global_rank == 0 and local_rank == 0 and ((epoch + 1) % 10 == 0):
+            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model.pth")
+            print("Model saved to models/model.pth")
+            save_samples(batch, attention_maps)
     model = model.to("cpu")
     dist.destroy_process_group()
-    return model.module, attention_maps
+    return model.module, attention_maps, batch
 
 if __name__ == "__main__":
-    call(['mkdir', '-p', '/config/Codebase/models'])
-    call(['mkdir', '-p', '/config/Codebase/samples'])
+    start = time()
+    call(['mkdir', '-p', f'{parent_dir}/Codebase/models'])
+    call(['mkdir', '-p', f'{parent_dir}/Codebase/samples'])
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
-    distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights="/config/Codebase/models/model.pth")
+    distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"DEFAULT")
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224)),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
     ])
-    opt = optim.Adam(model.parameters(), lr=0.001)
+    opt = optim.Adam(model.parameters(), lr=0.1)
     crit = torch.nn.BCEWithLogitsLoss()
-    dataset = rvh.ImageDataset("/config/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
-    model, attention_maps = distributor.run(
+    dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
+    model, attention_maps, batch = distributor.run(
         train,
         model,
         optimizer=opt,
@@ -103,17 +120,11 @@ if __name__ == "__main__":
         criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=7,
-        batch_size=36
+        epochs=75,
+        batch_size=112
     )
-    torch.save(model.state_dict(), "/config/Codebase/models/model.pth")
-    try:
-        for i, attention_map in enumerate(attention_maps):
-            full_attention = torch.nn.functional.normalize(attention_map[1:, 1:], eps=sys.float_info.min, dim=1)
-            full_attention_1 = full_attention.cpu().detach().numpy()
-            Image.fromarray((full_attention_1 * 255).astype(np.uint8)).save(f"/config/Codebase/samples/sample_attention_{i}.jpg")
-            full_attention_2 = full_attention.mean(dim=0).reshape(14, 14).cpu().detach().numpy()
-            Image.fromarray((full_attention_2 * 255).astype(np.uint8)).save(f"/config/Codebase/samples/sample_image_{i}.jpg")
-    except Exception as e:
-        print(f"Something went wrong: {e}")
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model.pth")
+    print(f"Model saved to {parent_dir}/Codebase/models/model.pth")
+    save_samples(batch, attention_maps)
+    print(f"Time taken: {time() - start}")
     sc.stop()

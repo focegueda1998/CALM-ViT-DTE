@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import torchvision
 import torch.optim as optim
 import torchvision.transforms.functional
@@ -9,11 +10,18 @@ from torch.optim.lr_scheduler import StepLR
 import csv
 from torchvision import models
 
+parent_dir = "/config"
+
 class ViT(torch.nn.Module):
-    def __init__(self, device, weights=None, in_features=1024, out_features=1): 
+    def __init__(self, device, weights=None, type="b", out_features=1): 
         super().__init__()
         self.device = device
-        self.vit = models.vit_l_16(weights=weights).to(device)
+        if type == "b":
+            in_features = 768
+            self.vit = models.vit_b_16(weights=weights).to(device) if weights else models.vit_b_16().to(device)
+        elif type == "l":
+            in_features = 1024
+            self.vit = models.vit_l_16(weights=weights).to(device) if weights else models.vit_l_16().to(device)
         self.vit.num_classes = out_features
         for param in self.vit.parameters():
             param.requires_grad = True
@@ -22,7 +30,6 @@ class ViT(torch.nn.Module):
         )
 
     def forward(self, x):
-        attention_maps = []
         x = self.vit.conv_proj(x)
         x = x.flatten(2).transpose(1,2)
         batch_size, seq_len, _ = x.shape
@@ -30,11 +37,11 @@ class ViT(torch.nn.Module):
         x = torch.cat((cls_token, x), dim = 1)
         x += self.vit.encoder.pos_embedding[:, : (seq_len + 1), :]
         x = self.vit.encoder.dropout(x)
+        attention_map = None
         for layer in self.vit.encoder.layers:
             y = x
             x = layer.ln_1(x)
             x, attention_map = layer.self_attention(x, x, x, need_weights=True)
-            attention_maps.append(attention_map)
             x = layer.dropout(x)
             x = x + y
             y = layer.ln_2(x)
@@ -43,7 +50,9 @@ class ViT(torch.nn.Module):
         x = self.vit.encoder.ln(x)
         cls_output = x[:, 0]
         x = self.vit.heads(cls_output)
-        return x, attention_maps[-1]
+        attention_map = attention_map[:, :, 1:]
+        attention_map = attention_map.sum(dim=1)
+        return x, attention_map
 
 class ImageDataset(Dataset):
     def __init__(self, root_dir, csv_file, transform=None, split_ratio=0.8, train=True):
@@ -64,13 +73,23 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, idx):
         data = self.data[:self.split] if self.train else self.data[self.split:]
-        img_name = "/config/AI_Human_Generated_Images/"+ data[idx][1]
+        img_name = f"{parent_dir}/AI_Human_Generated_Images/"+ data[idx][1]
         image = self.transform(Image.open(img_name))
         label = torch.tensor(int(data[idx][2]))
         return image, label
 
     def reshuffle(self):
         random.shuffle(self.data)
+
+def save_samples(batch, attention_maps):
+    try:
+        for i, attention_map in enumerate(attention_maps):
+            sample = batch[i].permute(1, 2, 0).cpu().detach().numpy()
+            Image.fromarray((sample * 255).astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample.jpg")
+            full_attention = attention_map.mul(255).clamp(0, 255).reshape(14, 14).cpu().detach().numpy()
+            Image.fromarray(full_attention.astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample_attn.jpg")
+    except Exception as e:
+        print(f"Something went wrong: {e}")
 
 def initialize_res18(device):
     """
@@ -112,7 +131,7 @@ def initialize_res50(device):
 
     return model
 
-def initialize_vit(device, weights: str="DEFAULT"):
+def initialize_vit(device, weights: str="DEFAULT", type="b"):
     """
     Initialize the model and optimizer.
     The function sets up the model and optimizer, then returns both.
@@ -121,11 +140,15 @@ def initialize_vit(device, weights: str="DEFAULT"):
     #! Add more pretrained weights later.
     match weights:
         case "DEFAULT":
-            model = ViT(device, weights=models.ViT_L_16_Weights.DEFAULT).to(device)
-        case "", None:
-            model = ViT(device).to(device)
+            model = ViT(
+                device, 
+                weights=models.ViT_L_16_Weights.DEFAULT if type == "l" else models.ViT_B_16_Weights.DEFAULT,
+                type=type
+            ).to(device)
+        case "":
+            model = ViT(device, type=type).to(device)
         case _:
-            model = ViT(device)
+            model = ViT(device).to(device)
             try:
                 model.load_state_dict(torch.load(weights, weights_only=True))
             except Exception as e:
@@ -134,7 +157,7 @@ def initialize_vit(device, weights: str="DEFAULT"):
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = initialize_vit(device)
+    model = initialize_vit(device, type="l")
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.BCEWithLogitsLoss()
@@ -146,13 +169,13 @@ if __name__ == '__main__':
         torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
     ])
 
-    dataset = ImageDataset("/config/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+    dataset = ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
+    dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
 
     for epoch in range(1):
         dataset.reshuffle()
         dataset.train = True
-        dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+        dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
         model.train()
         for i, (x, y) in enumerate(dataloader):
             x = x.to(device)
@@ -172,13 +195,14 @@ if __name__ == '__main__':
             print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Predicted: {predicted}/{len(y_pred)}")
 
         dataset.train = False
-        dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+        dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
         model.eval()
         with torch.no_grad():
             for i, (x, y) in enumerate(dataloader):
+                batch = x
                 x = x.to(device)
                 y = y.to(device)
-                y_hat = model(x)
+                y_hat, attention_maps = model(x)
                 y_prob = torch.sigmoid(y_hat)
                 y_pred = (y_prob > 0.5).float()
                 y_pred = y_pred.squeeze().tolist()
@@ -187,3 +211,5 @@ if __name__ == '__main__':
                     if pred == y.float()[j]:
                         predicted += 1
                 print(f"Epoch {epoch}, Batch {i}, Predicted: {predicted}/{len(y_pred)}")
+        
+        save_samples(batch, attention_maps)
