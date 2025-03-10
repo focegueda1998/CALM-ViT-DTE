@@ -51,7 +51,7 @@ class ViT(torch.nn.Module):
         cls_output = x[:, 0]
         x = self.vit.heads(cls_output)
         attention_map = attention_map[:, :, 1:]
-        attention_map = attention_map.sum(dim=1)
+        attention_map = attention_map.mean(dim=1)
         return x, attention_map
 
 class ImageDataset(Dataset):
@@ -86,7 +86,11 @@ def save_samples(batch, attention_maps):
         for i, attention_map in enumerate(attention_maps):
             sample = batch[i].permute(1, 2, 0).cpu().detach().numpy()
             Image.fromarray((sample * 255).astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample.jpg")
-            full_attention = attention_map.mul(255).clamp(0, 255).reshape(14, 14).cpu().detach().numpy()
+            a_min = attention_map.min()
+            a_max = attention_map.max()
+            a_diff = a_max - a_min if a_max - a_min > 1e-6 else 1e-6
+            full_attention = (attention_map - a_min) / a_diff
+            full_attention = full_attention.mul(255).clamp(0, 255)
             Image.fromarray(full_attention.astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample_attn.jpg")
     except Exception as e:
         print(f"Something went wrong: {e}")
@@ -148,7 +152,7 @@ def initialize_vit(device, weights: str="DEFAULT", type="b"):
         case "":
             model = ViT(device, type=type).to(device)
         case _:
-            model = ViT(device).to(device)
+            model = ViT(device, type=type).to(device)
             try:
                 model.load_state_dict(torch.load(weights, weights_only=True))
             except Exception as e:

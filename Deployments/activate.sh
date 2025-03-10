@@ -41,6 +41,8 @@ if [ "$kill" = "false" ]; then
     echo "Training did not end in 21000 seconds. Deactivating..."
 elif [ "$kill" = "true" ]; then
     kubectl logs --tail=4 master
+    export remaining=$(((21000 - $SECONDS) / 60))
+    echo "Time remaining: $remaining minutes"
     echo "Training ended. Deactivating..."
 fi
 

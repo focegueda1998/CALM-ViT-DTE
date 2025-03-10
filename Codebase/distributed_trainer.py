@@ -1,5 +1,5 @@
 import os
-from time import time
+from time import time, sleep
 import torch
 import random
 import matplotlib.pyplot as plt
@@ -15,19 +15,35 @@ from pyspark.sql import SparkSession
 from pyspark.ml.torch.distributor import TorchDistributor
 from subprocess import call
 import torchvision
+from torchvision.transforms.functional import InterpolationMode
 import sys
 
 parent_dir = "/config"
 
-def save_samples(batch, attention_maps):
+def save_samples(batch, attention_maps, y_pred, y_actual):
     try:
         for i, attention_map in enumerate(attention_maps):
             sample = batch[i].permute(1, 2, 0).cpu().detach().numpy()
             Image.fromarray((sample * 255).astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample.jpg")
-            full_attention = attention_map.mul(255).clamp(0, 255).reshape(14, 14).cpu().detach().numpy()
-            Image.fromarray(full_attention.astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample_attn.jpg")
+            full_attention = attention_map
+            f_min = full_attention.min()
+            f_max = full_attention.max()
+            f_diff = f_max - f_min if f_max - f_min > 1e-6 else 1e-6
+            full_attention = (full_attention - f_min) / f_diff
+            full_attention_2 = full_attention.mul(255).clamp(0, 255).reshape(14, 14).cpu().detach().numpy()
+            Image.fromarray(full_attention_2.astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample_attn.jpg")
+            full_attention, _ =  torch.sort(full_attention)
+            full_attention = full_attention.cpu().detach().numpy()
+            plt.scatter(range(196), full_attention)
+            plt.grid(True)
+            plt.xlabel("Attention Heads")
+            plt.ylabel("Attention Weights")
+            plt.title(f"Predicted: {int(y_pred[i])}, Actual: {int(y_actual[i])}")
+            plt.savefig(f"{parent_dir}/Codebase/samples/{i}_sample_attn_scatter.jpg")
+            plt.close()
     except Exception as e:
         print(f"Something went wrong: {e}")
+
 
 def train(initializer, optimizer, scheduler, criterion,
           use_gpu=True, dataset=None, epochs=15, batch_size=128):
@@ -63,6 +79,8 @@ def train(initializer, optimizer, scheduler, criterion,
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, pin_memory=True)
     attention_maps = None
     batch = None
+    y_pred = None
+    y_actual = None
     model.train()
     for epoch in range(epochs):
         sampler.set_epoch(epoch)
@@ -78,6 +96,7 @@ def train(initializer, optimizer, scheduler, criterion,
             optimizer.zero_grad()
             y_hat, attention_maps = model(x)
             y = y.float()
+            y_actual = y
             loss = criterion(y_hat.squeeze(), y)
             loss.backward()
             optimizer.step()
@@ -88,13 +107,13 @@ def train(initializer, optimizer, scheduler, criterion,
             print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Predicted: {int(predicted)}/{len(y_pred)}")
         if scheduler is not None:
             scheduler.step()
-        if global_rank == 0 and local_rank == 0 and ((epoch + 1) % 10 == 0):
-            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model.pth")
-            print("Model saved to models/model.pth")
-            save_samples(batch, attention_maps)
+        if global_rank == 0 and local_rank == 0 and ((epoch + 1) % 5 == 0):
+            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_B.pth")
+            print("Model saved to models/model_B.pth")
+            save_samples(batch, attention_maps, y_pred, y_actual)
     model = model.to("cpu")
     dist.destroy_process_group()
-    return model.module, attention_maps, batch
+    return model.module, attention_maps, batch, y_pred, y_actual
 
 if __name__ == "__main__":
     start = time()
@@ -103,16 +122,16 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"DEFAULT")
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_B.pth", type="l")
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224)),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
     ])
-    opt = optim.Adam(model.parameters(), lr=0.1)
+    opt = optim.Adam(model.parameters(), lr=0.00015625)
     crit = torch.nn.BCEWithLogitsLoss()
     dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
-    model, attention_maps, batch = distributor.run(
+    model, attention_maps, batch, y_pred, y_actual = distributor.run(
         train,
         model,
         optimizer=opt,
@@ -120,11 +139,13 @@ if __name__ == "__main__":
         criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=75,
+        epochs=78,
         batch_size=112
     )
-    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model.pth")
-    print(f"Model saved to {parent_dir}/Codebase/models/model.pth")
-    save_samples(batch, attention_maps)
+    sleep(30)
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_B.pth")
+    print(f"Model saved to {parent_dir}/Codebase/models/model_B.pth")
+    sleep(30)
+    save_samples(batch, attention_maps, y_pred, y_actual)
     print(f"Time taken: {time() - start}")
     sc.stop()
