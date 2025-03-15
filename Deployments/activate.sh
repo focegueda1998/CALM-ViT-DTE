@@ -7,7 +7,7 @@ echo "Deploying Spark Cluster..."
 kubectl apply -f ingress.yaml -f service.yaml -f pvc.yaml -f slave01-pod.yaml -f slave02-pod.yaml -f slave03-pod.yaml -f master-pod.yaml
 echo "Waiting for pods to be ready..."
 
-while kubectl get pods | grep -q -E "Pending|Init:[0-9]+/[0-9]+|ContainerCreating|Succeeded|Failed|Unknown|CrashLoopBackOff|Error"; do
+while kubectl get pods | grep -q -E "Pending|Init:[0-9]+/[0-9]+|ContainerCreating|Succeeded|Failed|Unknown|CrashLoopBackOff|Error|PodInitializing"; do
     sleep 5
 done
 

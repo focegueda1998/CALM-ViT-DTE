@@ -108,8 +108,8 @@ def train(initializer, optimizer, scheduler, criterion,
         if scheduler is not None:
             scheduler.step()
         if global_rank == 0 and local_rank == 0 and ((epoch + 1) % 5 == 0):
-            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_B.pth")
-            print("Model saved to models/model_B.pth")
+            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_l.pth")
+            print("Model saved to models/model_l.pth")
             save_samples(batch, attention_maps, y_pred, y_actual)
     model = model.to("cpu")
     dist.destroy_process_group()
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_B.pth", type="l")
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_l.pth", type="l")
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224)),
         torchvision.transforms.ToTensor(),
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     ])
     opt = optim.Adam(model.parameters(), lr=0.00015625)
     crit = torch.nn.BCEWithLogitsLoss()
-    dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
+    dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=0.0025, train=True)
     model, attention_maps, batch, y_pred, y_actual = distributor.run(
         train,
         model,
@@ -139,12 +139,12 @@ if __name__ == "__main__":
         criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=78,
-        batch_size=112
+        epochs=10,
+        batch_size=28
     )
     sleep(30)
-    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_B.pth")
-    print(f"Model saved to {parent_dir}/Codebase/models/model_B.pth")
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_l.pth")
+    print(f"Model saved to {parent_dir}/Codebase/models/model_l.pth")
     sleep(30)
     save_samples(batch, attention_maps, y_pred, y_actual)
     print(f"Time taken: {time() - start}")

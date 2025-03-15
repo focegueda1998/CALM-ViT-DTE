@@ -35,12 +35,12 @@ spec:
     image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
     resources:
       limits:
-        memory: 24Gi
-        cpu: 8000m
+        memory: 32Gi
+        cpu: 10000m
         nvidia.com/gpu: 2
       requests:
-        memory: 24Gi
-        cpu: 8000m
+        memory: 32Gi
+        cpu: 10000m
         nvidia.com/gpu: 2
     ports:
     - containerPort: 8088

@@ -38,21 +38,25 @@ class ViT(torch.nn.Module):
         x += self.vit.encoder.pos_embedding[:, : (seq_len + 1), :]
         x = self.vit.encoder.dropout(x)
         attention_map = None
+        attention_maps = None
+        count = 0
         for layer in self.vit.encoder.layers:
             y = x
             x = layer.ln_1(x)
             x, attention_map = layer.self_attention(x, x, x, need_weights=True)
+            attention_maps = attention_map if attention_maps is None else torch.add(attention_maps, attention_map)
             x = layer.dropout(x)
             x = x + y
             y = layer.ln_2(x)
             y = layer.mlp(y)
             x = x + y
+            count += 1
         x = self.vit.encoder.ln(x)
         cls_output = x[:, 0]
         x = self.vit.heads(cls_output)
-        attention_map = attention_map[:, :, 1:]
-        attention_map = attention_map.mean(dim=1)
-        return x, attention_map
+        attention_maps = attention_maps[:, :, 1:] / count
+        attention_maps = attention_maps.mean(dim=1)
+        return x, attention_maps
 
 class ImageDataset(Dataset):
     def __init__(self, root_dir, csv_file, transform=None, split_ratio=0.8, train=True):
