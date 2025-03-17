@@ -58,6 +58,16 @@ class ViT(torch.nn.Module):
         attention_maps = attention_maps.mean(dim=1)
         return x, attention_maps
 
+class MaxViT(torch.nn.Module):
+    def __init__(self, device, weights=None, out_features=1):
+        super().__init__()
+        self.device = device
+        self.max_vit = models.maxvit_t(weight=weights).to(device) if weights else models.maxvit_t().to(device)
+    
+    def forward(self, x):
+        x = self.max_vit(x)
+        return x
+
 class ImageDataset(Dataset):
     def __init__(self, root_dir, csv_file, transform=None, split_ratio=0.8, train=True):
         self.data = []
@@ -156,7 +166,7 @@ def initialize_vit(device, weights: str="DEFAULT", type="b"):
         case "":
             model = ViT(device, type=type).to(device)
         case _:
-            model = ViT(device, type=type).to(device)
+            model = ViT(device, type=type)
             try:
                 model.load_state_dict(torch.load(weights, weights_only=True))
             except Exception as e:
@@ -165,11 +175,11 @@ def initialize_vit(device, weights: str="DEFAULT", type="b"):
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = initialize_vit(device, type="l")
+    # model = initialize_vit(device, type="l")
+    model = initialize_vit(device, weights=f"{parent_dir}/Codebase/models/model_b.pth", type="b")
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.BCEWithLogitsLoss()
-    print(model)
 
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224)),
@@ -177,47 +187,49 @@ if __name__ == '__main__':
         torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
     ])
 
-    dataset = ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
-    dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_l2.pth")
 
-    for epoch in range(1):
-        dataset.reshuffle()
-        dataset.train = True
-        dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
-        model.train()
-        for i, (x, y) in enumerate(dataloader):
-            x = x.to(device)
-            y = y.to(device)
-            optimizer.zero_grad()
-            y_hat, _ = model(x)
-            loss = criterion(y_hat.squeeze(), y.float()) # The labels need to be floating point
-            loss.backward()
-            optimizer.step()
-            y_prob = torch.sigmoid(y_hat)
-            y_pred = (y_prob > 0.5).float()
-            y_pred = y_pred.squeeze().tolist()
-            predicted = 0
-            for j, pred in enumerate(y_pred):
-                if pred == y.float()[j]:
-                    predicted += 1
-            print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Predicted: {predicted}/{len(y_pred)}")
+    # dataset = ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
+    # dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
 
-        dataset.train = False
-        dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
-        model.eval()
-        with torch.no_grad():
-            for i, (x, y) in enumerate(dataloader):
-                batch = x
-                x = x.to(device)
-                y = y.to(device)
-                y_hat, attention_maps = model(x)
-                y_prob = torch.sigmoid(y_hat)
-                y_pred = (y_prob > 0.5).float()
-                y_pred = y_pred.squeeze().tolist()
-                predicted = 0
-                for j, pred in enumerate(y_pred):
-                    if pred == y.float()[j]:
-                        predicted += 1
-                print(f"Epoch {epoch}, Batch {i}, Predicted: {predicted}/{len(y_pred)}")
+    # for epoch in range(1):
+    #     dataset.reshuffle()
+    #     dataset.train = True
+    #     dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
+    #     model.train()
+    #     for i, (x, y) in enumerate(dataloader):
+    #         x = x.to(device)
+    #         y = y.to(device)
+    #         optimizer.zero_grad()
+    #         y_hat, _ = model(x)
+    #         loss = criterion(y_hat.squeeze(), y.float()) # The labels need to be floating point
+    #         loss.backward()
+    #         optimizer.step()
+    #         y_prob = torch.sigmoid(y_hat)
+    #         y_pred = (y_prob > 0.5).float()
+    #         y_pred = y_pred.squeeze().tolist()
+    #         predicted = 0
+    #         for j, pred in enumerate(y_pred):
+    #             if pred == y.float()[j]:
+    #                 predicted += 1
+    #         print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Predicted: {predicted}/{len(y_pred)}")
+
+    #     dataset.train = False
+    #     dataloader = DataLoader(dataset, batch_size=36, shuffle=True)
+    #     model.eval()
+    #     with torch.no_grad():
+    #         for i, (x, y) in enumerate(dataloader):
+    #             batch = x
+    #             x = x.to(device)
+    #             y = y.to(device)
+    #             y_hat, attention_maps = model(x)
+    #             y_prob = torch.sigmoid(y_hat)
+    #             y_pred = (y_prob > 0.5).float()
+    #             y_pred = y_pred.squeeze().tolist()
+    #             predicted = 0
+    #             for j, pred in enumerate(y_pred):
+    #                 if pred == y.float()[j]:
+    #                     predicted += 1
+    #             print(f"Epoch {epoch}, Batch {i}, Predicted: {predicted}/{len(y_pred)}")
         
-        save_samples(batch, attention_maps)
+    #     save_samples(batch, attention_maps)

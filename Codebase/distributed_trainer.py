@@ -23,7 +23,12 @@ parent_dir = "/config"
 def save_samples(batch, attention_maps, y_pred, y_actual):
     try:
         for i, attention_map in enumerate(attention_maps):
-            sample = batch[i].permute(1, 2, 0).cpu().detach().numpy()
+            sample = batch[i]
+            sample = torchvision.transforms.Normalize(
+                    mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                    std=[1 / 0.229, 1 / 0.224, 1 / 0.225]
+            )(sample)
+            sample = sample.permute(1, 2, 0).cpu().detach().numpy()
             Image.fromarray((sample * 255).astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample.jpg")
             full_attention = attention_map
             f_min = full_attention.min()
@@ -60,10 +65,10 @@ def train(initializer, optimizer, scheduler, criterion,
 
     print("Training on device", os.environ['RANK'])
 
-    os.environ["NCCL_SOCKET_IFNAME"] = "eth0"
     gc.collect()
     if use_gpu: torch.cuda.empty_cache()
     os.environ['NCCL_DEBUG'] = 'ERROR'
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
     dist.init_process_group(backend='nccl' if use_gpu else 'gloo')
 
     local_rank = int(os.environ['LOCAL_RANK'])
@@ -123,14 +128,16 @@ if __name__ == "__main__":
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
     model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_l.pth", type="l")
+    model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((224, 224)),
+        torchvision.transforms.Resize((224, 224), antialias=True),
         torchvision.transforms.ToTensor(),
-        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x)
+        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
+        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     opt = optim.Adam(model.parameters(), lr=0.00015625)
     crit = torch.nn.BCEWithLogitsLoss()
-    dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=0.0025, train=True)
+    dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
     model, attention_maps, batch, y_pred, y_actual = distributor.run(
         train,
         model,
@@ -139,10 +146,9 @@ if __name__ == "__main__":
         criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=10,
+        epochs=16,
         batch_size=28
     )
-    sleep(30)
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_l.pth")
     print(f"Model saved to {parent_dir}/Codebase/models/model_l.pth")
     sleep(30)
