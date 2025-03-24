@@ -82,10 +82,10 @@ def train(initializer, optimizer, scheduler, criterion,
     sampler = DistributedSampler(dataset, shuffle=True)
     sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, pin_memory=True)
-    attention_maps = None
-    batch = None
-    y_pred = None
-    y_actual = None
+    # attention_maps = None
+    # batch = None
+    # y_pred = None
+    # y_actual = None
     model.train()
     for epoch in range(epochs):
         sampler.set_epoch(epoch)
@@ -95,13 +95,13 @@ def train(initializer, optimizer, scheduler, criterion,
         predicted = 0
         model.train()
         for i, (x, y) in enumerate(dataloader):
-            batch = x
+            # batch = x
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
-            y_hat, attention_maps = model(x)
+            y_hat = model(x)
             y = y.float()
-            y_actual = y
+            # y_actual = y
             loss = criterion(y_hat.squeeze(), y)
             loss.backward()
             optimizer.step()
@@ -112,13 +112,13 @@ def train(initializer, optimizer, scheduler, criterion,
             print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Predicted: {int(predicted)}/{len(y_pred)}")
         if scheduler is not None:
             scheduler.step()
-        if global_rank == 0 and local_rank == 0 and ((epoch + 1) % 5 == 0):
-            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_l.pth")
-            print("Model saved to models/model_l.pth")
-            save_samples(batch, attention_maps, y_pred, y_actual)
+        if global_rank == 0 and local_rank == 0 and ((epoch + 1) % 1 == 0):
+            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
+            print("Model saved to models/model_b.pth")
+            # save_samples(batch, attention_maps, y_pred, y_actual)
     model = model.to("cpu")
     dist.destroy_process_group()
-    return model.module, attention_maps, batch, y_pred, y_actual
+    return model.module
 
 if __name__ == "__main__":
     start = time()
@@ -127,7 +127,8 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_l.pth", type="l")
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"", type="b")
+    print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize((224, 224), antialias=True),
@@ -138,7 +139,7 @@ if __name__ == "__main__":
     opt = optim.Adam(model.parameters(), lr=0.00015625)
     crit = torch.nn.BCEWithLogitsLoss()
     dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
-    model, attention_maps, batch, y_pred, y_actual = distributor.run(
+    model = distributor.run(
         train,
         model,
         optimizer=opt,
@@ -146,12 +147,12 @@ if __name__ == "__main__":
         criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=16,
-        batch_size=28
+        epochs=66,
+        batch_size=96
     )
-    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_l.pth")
-    print(f"Model saved to {parent_dir}/Codebase/models/model_l.pth")
-    sleep(30)
-    save_samples(batch, attention_maps, y_pred, y_actual)
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
+    print(f"Model saved to {parent_dir}/Codebase/models/model_b.pth")
+    # sleep(30)
+    # save_samples(batch, attention_maps, y_pred, y_actual)
     print(f"Time taken: {time() - start}")
     sc.stop()
