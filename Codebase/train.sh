@@ -22,5 +22,4 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.executor.resource.gpu.discoveryScript=${SPARK_RAPIDS_DIR}/getGpusResources.sh \
        --conf spark.scheduler.barrier.maxConcurrentTasksCheck.maxFailures=1 \
        --files ${SPARK_RAPIDS_DIR}/getGpusResources.sh \
-       --py-files file:///config/Codebase/reverse_ViT_hybrid.py \
-       /config/Codebase/distributed_trainer.py;
+       --py-files file:///config/Codebase/Vi_Tools_CNN_less.py,file:///config/Codebase/reverse_ViT_hybrid.py file:///config/Codebase/distributed_trainer.py ;

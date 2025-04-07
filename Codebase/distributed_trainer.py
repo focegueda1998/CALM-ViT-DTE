@@ -20,37 +20,7 @@ import sys
 
 parent_dir = "/config"
 
-def save_samples(batch, attention_maps, y_pred, y_actual):
-    try:
-        for i, attention_map in enumerate(attention_maps):
-            sample = batch[i]
-            sample = torchvision.transforms.Normalize(
-                    mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
-                    std=[1 / 0.229, 1 / 0.224, 1 / 0.225]
-            )(sample)
-            sample = sample.permute(1, 2, 0).cpu().detach().numpy()
-            Image.fromarray((sample * 255).astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample.jpg")
-            full_attention = attention_map
-            f_min = full_attention.min()
-            f_max = full_attention.max()
-            f_diff = f_max - f_min if f_max - f_min > 1e-6 else 1e-6
-            full_attention = (full_attention - f_min) / f_diff
-            full_attention_2 = full_attention.mul(255).clamp(0, 255).reshape(14, 14).cpu().detach().numpy()
-            Image.fromarray(full_attention_2.astype(np.uint8)).save(f"{parent_dir}/Codebase/samples/{i}_sample_attn.jpg")
-            full_attention, _ =  torch.sort(full_attention)
-            full_attention = full_attention.cpu().detach().numpy()
-            plt.scatter(range(196), full_attention)
-            plt.grid(True)
-            plt.xlabel("Attention Heads")
-            plt.ylabel("Attention Weights")
-            plt.title(f"Predicted: {int(y_pred[i])}, Actual: {int(y_actual[i])}")
-            plt.savefig(f"{parent_dir}/Codebase/samples/{i}_sample_attn_scatter.jpg")
-            plt.close()
-    except Exception as e:
-        print(f"Something went wrong: {e}")
-
-
-def train(initializer, optimizer, scheduler, criterion,
+def train(initializer, optimizer, scheduler,
           use_gpu=True, dataset=None, epochs=15, batch_size=128):
     import torch
     import os
@@ -69,19 +39,23 @@ def train(initializer, optimizer, scheduler, criterion,
     if use_gpu: torch.cuda.empty_cache()
     os.environ['NCCL_DEBUG'] = 'ERROR'
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+    os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
     dist.init_process_group(backend='nccl' if use_gpu else 'gloo')
 
     local_rank = int(os.environ['LOCAL_RANK'])
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
     model = initializer
     model = model.to(device)
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
     sampler = DistributedSampler(dataset, shuffle=True)
     sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, pin_memory=True)
+    criterion_binary = torch.nn.BCEWithLogitsLoss()
+    criterion_mse = torch.nn.MSELoss()
+    criterion_kl = torch.nn.KLDivLoss(reduction='batchmean')
     # attention_maps = None
     # batch = None
     # y_pred = None
@@ -99,21 +73,41 @@ def train(initializer, optimizer, scheduler, criterion,
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
-            y_hat = model(x)
             y = y.float()
-            # y_actual = y
-            loss = criterion(y_hat.squeeze(), y)
+            # Compute classification and reconstruction loss on the batch
+            y_hat, img = model(x)
+            loss = criterion_binary(y_hat.squeeze(), y)
+            loss += criterion_mse(img, x)
+            img_flat = img.reshape(-1, 256 * 256 * 3)
+            x_flat = x.reshape(-1, 256 * 256 * 3)
+            loss += criterion_kl(torch.log_softmax(img_flat, dim=1), torch.softmax(x_flat, dim=1))
             loss.backward()
+            # with torch.no_grad():
+            #     # attention_maps = model.module.get_attention_maps(x)
+            #     img_detached = img.detach()
+            # # Compute adversarial loss on the batch
+            # fake_y_hat, img = model(img_detached)
+            # fake_y = torch.ones_like(y).float()
+            # sa_loss = criterion_binary(fake_y_hat.squeeze(), fake_y)
+            # sa_loss += criterion_mse(img, img_detached)
+            # img_flat = img.reshape(-1, 256 * 256 * 3)
+            # img_detached_flat = img_detached.reshape(-1, 256 * 256 * 3)
+            # sa_loss += criterion_kl(torch.log_softmax(img_flat, dim=1), torch.softmax(img_detached_flat, dim=1))
+            # sa_loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
             y_prob = torch.sigmoid(y_hat)
             y_pred = (y_prob > 0.5).float().squeeze()
             predicted = (y_pred == y).float().sum()
-            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Predicted: {int(predicted)}/{len(y_pred)}")
+            # fy_prob = torch.sigmoid(fake_y_hat)
+            # fy_pred = (fy_prob > 0.5).float().squeeze()
+            # f_predicted = (fy_pred == fake_y).float().sum()
+            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Predicted: {int(predicted)}/{y.shape[0]}")
         if scheduler is not None:
             scheduler.step()
-        if global_rank == 0 and local_rank == 0 and ((epoch + 1) % 1 == 0):
+        if global_rank == 0 and local_rank == 0:
             torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
+            rvh.save_samples(img)
             print("Model saved to models/model_b.pth")
             # save_samples(batch, attention_maps, y_pred, y_actual)
     model = model.to("cpu")
@@ -127,28 +121,27 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"", type="b")
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_b.pth")
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((224, 224), antialias=True),
+        torchvision.transforms.Resize((256, 256), antialias=True),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
-        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        torchvision.transforms.Lambda(lambda x: torch.nn.functional.tanh(x))
     ])
-    opt = optim.Adam(model.parameters(), lr=0.00015625)
-    crit = torch.nn.BCEWithLogitsLoss()
+    opt = optim.Adam(model.parameters(), lr=0.0001)
     dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
     model = distributor.run(
         train,
         model,
         optimizer=opt,
         scheduler=None,
-        criterion=crit,
         use_gpu=True,
         dataset=dataset,
-        epochs=66,
-        batch_size=96
+        epochs=45,
+        batch_size=48
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
     print(f"Model saved to {parent_dir}/Codebase/models/model_b.pth")
