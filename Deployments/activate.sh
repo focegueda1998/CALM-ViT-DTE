@@ -4,7 +4,7 @@ SECONDS=0
 KILL_AFTER_TRAINING=true
 
 echo "Deploying Spark Cluster..."
-kubectl apply -f ingress.yaml -f service.yaml -f pvc.yaml -f slave01-pod.yaml -f slave02-pod.yaml -f slave03-pod.yaml -f master-pod.yaml
+kubectl apply -f ingress.yaml -f service.yaml -f slave01-pod.yaml -f slave02-pod.yaml -f slave03-pod.yaml -f master-pod.yaml
 echo "Waiting for pods to be ready..."
 
 while kubectl get pods | grep -q -E "Pending|Init:[0-9]+/[0-9]+|ContainerCreating|Succeeded|Failed|Unknown|CrashLoopBackOff|Error|PodInitializing"; do
@@ -16,9 +16,6 @@ echo "All pods are ready... Let's take a breather..."
 sleep 30
 
 clear
-echo "Copying Codebase to shared volume..."
-kubectl cp --retries=3 ../Codebase master:/config
-echo "Codebase copied to shared volume. Deployment complete."
 echo "Waiting for traing to end or 21000 seconds until deactivating..."
 export kill=false
 until [ $SECONDS -ge 21000 ] || [ "$kill" = "true" ]; do
@@ -29,6 +26,9 @@ until [ $SECONDS -ge 21000 ] || [ "$kill" = "true" ]; do
         if echo "$tail" | grep -q "TRAINING HAS ENDED"; then
             export kill=true
             echo "Training ended."
+        fi
+        if [ $SECONDS -ge 900 ]; then
+            kubectl cp --retries=3 master:config/Codebase/samples ../Codebase/samples/
         fi
     fi
     export remaining=$(((21000 - $SECONDS) / 60))

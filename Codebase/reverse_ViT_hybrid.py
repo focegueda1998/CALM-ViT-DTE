@@ -1,4 +1,5 @@
 import torch
+import torchvision.transforms.v2
 import Vi_Tools_CNN_less as vt
 import torchvision
 import torch.optim as optim
@@ -6,6 +7,7 @@ import random
 import matplotlib.pyplot as plt
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
+from torchvision.datasets import ImageNet
 from torch.optim.lr_scheduler import StepLR
 import csv
 from torchvision import models
@@ -14,7 +16,7 @@ parent_dir = "/config"
 
 # Now completely decoupled from the PyTorch module!
 class ViT(torch.nn.Module):
-    def __init__(self, device, type=8, heads=16, seq_length=256, in_features=768, dim2=256, mean_var_hidden=192, out_features=1): 
+    def __init__(self, device, type=8, heads=16, seq_length=256, in_features=768, dim2=256, mean_var_hidden=192, out_features=1000): 
         super().__init__()
         self.device = device
         self.num_classes = out_features
@@ -110,34 +112,39 @@ if __name__ == '__main__':
     model = initialize_vit(device, weights=f"")
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
-    criterion_binary = torch.nn.BCEWithLogitsLoss()
+    criterion = torch.nn.CrossEntropyLoss()
     criterion_mse = torch.nn.MSELoss()
     criterion_KL = torch.nn.KLDivLoss(reduction='batchmean')
     print(model)
 
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-    transform = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((256, 256), antialias=True),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
-        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        torchvision.transforms.Lambda(lambda x: torch.nn.functional.tanh(x))
+    transform = torchvision.transforms.v2.Compose([
+        torchvision.transforms.v2.Resize((288, 288)),
+        torchvision.transforms.v2.RandomCrop((256, 256)),
+        torchvision.transforms.v2.RandomHorizontalFlip(),
+        torchvision.transforms.v2.RandomVerticalFlip(),
+        torchvision.transforms.v2.ToImage(),
+        torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
+        torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
+        torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        torchvision.transforms.v2.Lambda(lambda x: torch.nn.functional.tanh(x))
     ])
 
-    dataset = ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, train=True)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+    dataset = ImageNet(
+        root=parent_dir + "/imagenet/",
+        split="train",
+        transform=transform
+    )
+    dataloader = DataLoader(dataset, batch_size=50, shuffle=True)
 
     for epoch in range(5):
-        dataset.reshuffle()
-        dataset.train = True
-        dataloader = DataLoader(dataset, batch_size=48, shuffle=True)
         model.train()
         for i, (x, y) in enumerate(dataloader):
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
             y_hat, img = model(x)
-            loss_1 = criterion_binary(y_hat.squeeze(), y.float()) # The labels need to be floating point
+            loss_1 = criterion(y_hat.squeeze(), y) # The labels need to be floating point
             loss_2 = criterion_mse(img, x)
             img_flat = img.reshape(-1, 256 * 256 * 3)
             x_flat = x.reshape(-1, 256 * 256 * 3)
@@ -147,14 +154,10 @@ if __name__ == '__main__':
             loss = loss_1 + loss_2 + loss_3
             loss.backward()
             optimizer.step()
-            y_prob = torch.sigmoid(y_hat)
-            y_pred = (y_prob > 0.5).float()
-            y_pred = y_pred.squeeze().tolist()
-            predicted = 0
-            for j, pred in enumerate(y_pred):
-                if pred == y.float()[j]:
-                    predicted += 1
-            print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Predicted: {predicted}/{len(y_pred)}")
+            _, predicted = torch.max(y_hat.data, 1)
+            correct = (predicted == y).sum().item()
+            accuracy = correct / y.size(0)
+            print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Accuracy: {accuracy}")
             if i % 10 == 0:
                 save_samples(img)
         scheduler.step()

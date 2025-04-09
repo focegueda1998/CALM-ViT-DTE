@@ -20,13 +20,13 @@ spec:
   volumes:
   - name: config-volume
     persistentVolumeClaim:
-      claimName: shared-pvc
+      claimName: datasets-pvc
   initContainers:
   - name: init-dns
     image: busybox
     command: ["sh", "-c"]
     args:
-      - "echo $(hostname -i)\tslave03 >> /config/ips"
+      - "echo $(hostname -i)\tslave03 >> /config/ips_temp"
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -123,6 +123,7 @@ spec:
        fi; \
        sleep 30; \
        echo 'Fetching node IPs and updating /etc/hosts'; \
+       cat /config/ips_temp > /config/ips; \
        cat /config/ips >> /etc/hosts; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        echo 'Updated /etc/hosts'; \

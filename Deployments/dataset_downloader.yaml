@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dataset-downloader
+  labels:
+    k8s-app: spark-torch
+spec:
+  nodeSelector:
+    topology.kubernetes.io/region: us-west
+    topology.kubernetes.io/zone: fullerton
+  volumes:
+  - name: config-volume
+    persistentVolumeClaim:
+      claimName: datasets-pvc
+  containers:
+  - name: dataset-downloader
+    image: "ubuntu:latest"
+    resources:
+      limits:
+        memory: 8Gi
+        cpu: 4000m
+      requests:
+        memory: 8Gi
+        cpu: 4000m
+    volumeMounts:
+    - name: config-volume
+      mountPath: /config
+    command: ["bash", "-c"]
+    args: [
+      "apt update -y; \
+       apt install -y wget; \
+       cd /config; \
+       mkdir -p imagenet; \
+       cd imagenet; \
+       mkdir -p train; \
+       cd train; \
+       wget --tries=inf -O ILSVRC2012_img_train.tar 'https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_train.tar'; \
+       cd ..; \
+       mkdir -p val; \
+       cd val; \
+       wget --tries=inf -O ILSVRC2012_img_val.tar 'https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_val.tar'; \
+       cd ..; \
+       wget --tries=inf -O ILSVRC2012_devkit_t12.tar.gz 'https://image-net.org/data/ILSVRC/2012/ILSVRC2012_devkit_t12.tar.gz'; \
+       echo 'Dataset downloaded successfully.'; \
+       tail -f /dev/null; 
+      "
+    ]

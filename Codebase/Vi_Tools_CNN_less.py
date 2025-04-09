@@ -11,13 +11,15 @@ class ResidualStateManager():
         self.var_q_sum = None
         self.mean_kv_sum = None
         self.var_kv_sum = None
+        self.mask_sum = None
     
-    def get_sums(self, mean_q, var_q, mean_kv, var_kv):
+    def get_mean_var_sums(self, mean_q, var_q, mean_kv, var_kv):
         self.mean_q_sum = mean_q if self.mean_q_sum is None else self.mean_q_sum + mean_q
         self.var_q_sum = var_q if self.var_q_sum is None else self.var_q_sum + var_q
         self.mean_kv_sum = mean_kv if self.mean_kv_sum is None else self.mean_kv_sum + mean_kv
         self.var_kv_sum = var_kv if self.var_kv_sum is None else self.var_kv_sum + var_kv
         return self.mean_q_sum, self.var_q_sum, self.mean_kv_sum, self.var_kv_sum
+
 
 # Multi-Head Latent Distribution Attention
 class MLDA_Block(torch.nn.Module):
@@ -128,11 +130,9 @@ class MLDA_Block(torch.nn.Module):
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
         )
-        self.qc_upsample = torch.nn.Sequential( #! Since pytorch expects embed_dim to match query_dim, we need to upsample the query to dim3
+        self.qc_upsample_1 = torch.nn.Sequential( #! Since pytorch expects embed_dim to match query_dim, we need to upsample the query to dim3
             torch.nn.Linear(mean_var_hidden, dim2, bias=True),
             torch.nn.GELU(approximate='none'),
-            torch.nn.Dropout(dropout, inplace=False),
-            torch.nn.Linear(dim2, dim3, bias=True),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.kc_upsample = torch.nn.Sequential( #! Luckily, key and value can have different dimensions
@@ -143,6 +143,17 @@ class MLDA_Block(torch.nn.Module):
         self.vc_upsample = torch.nn.Sequential(
             torch.nn.Linear(mean_var_hidden, dim2, bias=True),
             torch.nn.GELU(approximate='none'),
+            torch.nn.Dropout(dropout, inplace=False)
+        )
+        self.linear_mask = torch.nn.Sequential(
+            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True),
+            torch.nn.GELU(approximate='none'),
+            torch.nn.Dropout(dropout, inplace=False),
+            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True),
+            torch.nn.Dropout(dropout, inplace=False),
+        )
+        self.qc_upsample_2 = torch.nn.Sequential(
+            torch.nn.Linear(dim2, dim3, bias=True),
             torch.nn.Dropout(dropout, inplace=False)
         )
         # Attention
@@ -162,10 +173,8 @@ class MLDA_Block(torch.nn.Module):
                 torch.nn.Linear(dim3, mlp_dim, bias=True),
                 torch.nn.GELU(approximate='none'),
                 torch.nn.Dropout(dropout, inplace=False),
-                torch.nn.Linear(mlp_dim, mlp_dim, bias=True),
-                torch.nn.Dropout(dropout, inplace=False),
                 torch.nn.Linear(mlp_dim, dim3, bias=True),
-                torch.nn.Dropout(dropout, inplace=False),
+                torch.nn.Dropout(dropout, inplace=False)
             )
 
     def forward(self, input_q, input_kv=None, state_manager=None, mask=False):
@@ -194,7 +203,7 @@ class MLDA_Block(torch.nn.Module):
         var_ckv = self.var_ckv(var_ckv)
         # Get residual states from state manager
         if state_manager is not None:
-            mean_cq, var_cq, mean_ckv, var_ckv = state_manager.get_sums(mean_cq, var_cq, mean_ckv, var_ckv)
+            mean_cq, var_cq, mean_ckv, var_ckv = state_manager.get_mean_var_sums(mean_cq, var_cq, mean_ckv, var_ckv)
         # Compute samples
         if not self.static_epsilon_weight and self.constrain_epsilon:
             e2de_ratio_param = self.sigmoid(self.e2de_ratio)
@@ -210,14 +219,14 @@ class MLDA_Block(torch.nn.Module):
         kc = kc.permute(0, 2, 1)
         vc = self.t_vc_upsample(ckv)
         vc = vc.permute(0, 2, 1)
-        qc = self.qc_upsample(qc if self.t_mean_cq else zcq)
+        qc = self.qc_upsample_1(qc if self.t_mean_cq else zcq)
         kc = self.kc_upsample(kc)
         vc = self.vc_upsample(vc)
+        mask_mat = self.linear_mask(qc @ kc.permute(0, 2, 1)) if mask else None
+        mask_mat = mask_mat.reshape(mask_mat.shape[0], 1, mask_mat.shape[1], mask_mat.shape[2]).repeat(1, self.heads, 1, 1)
+        mask_mat = mask_mat.reshape(mask_mat.shape[0] * mask_mat.shape[1] , mask_mat.shape[2], mask_mat.shape[3])
+        qc = self.qc_upsample_2(qc)
         # Attention
-        mask_mat = None
-        if mask:
-            mask_mat = torch.zeros(qc.shape[1], qc.shape[1]).bool().to(qc.device)
-            mask_mat = torch.triu(mask_mat, diagonal=1)
         x, _ = self.attention(qc, kc, vc, attn_mask=mask_mat)
         x = self.dropout(x)
         x = x + qc

@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: shared-pvc
+  name: datasets-pvc
 spec:
   storageClassName: rook-cephfs-fullerton
   accessModes:
     - ReadWriteMany
   resources:
     requests:
-      storage: 150Gi
+      storage: 300Gi

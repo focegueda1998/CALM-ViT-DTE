@@ -13,6 +13,7 @@ from PIL import Image
 from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.ml.torch.distributor import TorchDistributor
+from torchvision.datasets import ImageNet
 from subprocess import call
 import torchvision
 from torchvision.transforms.functional import InterpolationMode
@@ -52,8 +53,8 @@ def train(initializer, optimizer, scheduler,
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
     sampler = DistributedSampler(dataset, shuffle=True)
     sampler.set_epoch(0)
-    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, pin_memory=True)
-    criterion_binary = torch.nn.BCEWithLogitsLoss()
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+    criterion = torch.nn.CrossEntropyLoss()
     criterion_mse = torch.nn.MSELoss()
     criterion_kl = torch.nn.KLDivLoss(reduction='batchmean')
     # attention_maps = None
@@ -73,10 +74,9 @@ def train(initializer, optimizer, scheduler,
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
-            y = y.float()
             # Compute classification and reconstruction loss on the batch
             y_hat, img = model(x)
-            loss = criterion_binary(y_hat.squeeze(), y)
+            loss = criterion(y_hat.squeeze(), y)
             loss += criterion_mse(img, x)
             img_flat = img.reshape(-1, 256 * 256 * 3)
             x_flat = x.reshape(-1, 256 * 256 * 3)
@@ -96,20 +96,17 @@ def train(initializer, optimizer, scheduler,
             # sa_loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-            y_prob = torch.sigmoid(y_hat)
-            y_pred = (y_prob > 0.5).float().squeeze()
-            predicted = (y_pred == y).float().sum()
-            # fy_prob = torch.sigmoid(fake_y_hat)
-            # fy_pred = (fy_prob > 0.5).float().squeeze()
-            # f_predicted = (fy_pred == fake_y).float().sum()
-            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Predicted: {int(predicted)}/{y.shape[0]}")
+            _, predicted = torch.max(y_hat.data, 1)
+            correct = (predicted == y).sum().item()
+            accuracy = correct / y.size(0)
+            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
+            if global_rank == 0 and local_rank == 0 and i % 250 == 0:
+                torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
+                rvh.save_samples(img)
+                print("Model saved to models/model_b.pth")
+                # save_samples(batch, attention_maps, y_pred, y_actual)
         if scheduler is not None:
             scheduler.step()
-        if global_rank == 0 and local_rank == 0:
-            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
-            rvh.save_samples(img)
-            print("Model saved to models/model_b.pth")
-            # save_samples(batch, attention_maps, y_pred, y_actual)
     model = model.to("cpu")
     dist.destroy_process_group()
     return model.module
@@ -121,18 +118,25 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_b.pth")
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"")
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-    transform = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((256, 256), antialias=True),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
-        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        torchvision.transforms.Lambda(lambda x: torch.nn.functional.tanh(x))
+    model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+    transform = torchvision.transforms.v2.Compose([
+        torchvision.transforms.v2.Resize((256, 256)),
+        torchvision.transforms.v2.RandomHorizontalFlip(),
+        torchvision.transforms.v2.ToImage(),
+        torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
+        torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
+        torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        torchvision.transforms.v2.Lambda(lambda x: torch.nn.functional.tanh(x))
     ])
     opt = optim.Adam(model.parameters(), lr=0.0001)
-    dataset = rvh.ImageDataset(f"{parent_dir}/AI_Human_Generated_Images/", "train.csv", transform=transform, split_ratio=1, train=True)
+    dataset = ImageNet(
+        root=parent_dir + "/imagenet/",
+        split="train",
+        transform=transform
+    )
     model = distributor.run(
         train,
         model,
@@ -140,7 +144,7 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs=45,
+        epochs=3,
         batch_size=48
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")

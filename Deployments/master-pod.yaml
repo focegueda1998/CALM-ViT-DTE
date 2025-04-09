@@ -20,13 +20,13 @@ spec:
   volumes:
   - name: config-volume
     persistentVolumeClaim:
-      claimName: shared-pvc
+      claimName: datasets-pvc
   initContainers:
   - name: init-dns
     image: busybox
     command: ["sh", "-c"]
     args:
-      - "echo $(hostname -i)\tmaster >> /config/ips"
+      - "echo $(hostname -i)\tmaster >> /config/ips_temp"
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -131,6 +131,7 @@ spec:
        fi; \
        sleep 30; \
        echo 'Fetching node IPs and updating /etc/hosts'; \
+       cat /config/ips_temp > /config/ips; \
        cat /config/ips >> /etc/hosts; \
        echo 'Updated /etc/hosts'; \
        sleep 15; \
@@ -143,15 +144,14 @@ spec:
        bash /usr/local/kafka/bin/kafka-storage.sh format -t ${CLUSTER_UUID} -c /usr/local/kafka/config/kraft/server.properties; \
        bash /usr/local/kafka/bin/kafka-server-start.sh -daemon /usr/local/kafka/config/kraft/server.properties; \
        sleep 30; \
-       echo 'Downloading Kaggle Dataset, Please Wait For This To Complete'; \
-       mkdir -p /config/AI_Human_Generated_Images; \
-       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -o -q -p /config; \
-       unzip /config/ai-vs-human-generated-dataset.zip -d /config/AI_Human_Generated_Images; \
-       rm -rf /config/ai-vs-human-generated-dataset.zip; \
-       echo 'Dataset Downloaded'; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        ./usr/local/spark/sbin/start-all.sh --host master --port 7077; \
+       rm /config/ips_temp; \
        echo 'Cluster Started'; \
+       sleep 30; \
+       echo 'TRAINING'; \
+       bash /config/Codebase/train.sh; \
+       echo 'TRAINING HAS ENDED'; \
        tail -f /dev/null;
        "
     ]
