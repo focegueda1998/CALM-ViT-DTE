@@ -59,12 +59,7 @@ spec:
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \
        . /etc/profile; \
-       /usr/sbin/sshd; \
-       echo 'Downloading Kaggle Dataset, Please Wait For This To Complete'; \
-       mkdir -p /config/AI_Human_Generated_Images; \
-       kaggle datasets download alessandrasala79/ai-vs-human-generated-dataset -p /config; \
-       unzip /config/ai-vs-human-generated-dataset.zip -d /config/AI_Human_Generated_Images; \
-       rm -rf /config/ai-vs-human-generated-dataset.zip; \
+       /usr/sbin/sshd; \ \
        echo 'Directories Set Up'; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        echo 'solo' > /usr/local/spark/conf/workers; \

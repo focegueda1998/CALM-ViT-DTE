@@ -47,16 +47,16 @@ def train(initializer, optimizer, scheduler,
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = StepLR(optimizer, step_size=1, gamma=0.5)
     model = initializer
     model = model.to(device)
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
-    sampler = DistributedSampler(dataset, shuffle=True)
+    sampler = DistributedSampler(dataset, shuffle=True, seed=420)
     sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     criterion = torch.nn.CrossEntropyLoss()
-    criterion_mse = torch.nn.MSELoss()
-    criterion_kl = torch.nn.KLDivLoss(reduction='batchmean')
+    # criterion_mse = torch.nn.MSELoss()
+    # criterion_kl = torch.nn.KLDivLoss(reduction='batchmean')
     # attention_maps = None
     # batch = None
     # y_pred = None
@@ -75,12 +75,12 @@ def train(initializer, optimizer, scheduler,
             y = y.to(device)
             optimizer.zero_grad()
             # Compute classification and reconstruction loss on the batch
-            y_hat, img = model(x)
+            y_hat = model(x)
             loss = criterion(y_hat.squeeze(), y)
-            loss += criterion_mse(img, x)
-            img_flat = img.reshape(-1, 256 * 256 * 3)
-            x_flat = x.reshape(-1, 256 * 256 * 3)
-            loss += criterion_kl(torch.log_softmax(img_flat, dim=1), torch.softmax(x_flat, dim=1))
+            # loss += criterion_mse(img, x)
+            # img_flat = img.reshape(-1, 256 * 256 * 3)
+            # x_flat = x.reshape(-1, 256 * 256 * 3)
+            # loss += criterion_kl(torch.log_softmax(img_flat, dim=1), torch.softmax(x_flat, dim=1))
             loss.backward()
             # with torch.no_grad():
             #     # attention_maps = model.module.get_attention_maps(x)
@@ -100,13 +100,15 @@ def train(initializer, optimizer, scheduler,
             correct = (predicted == y).sum().item()
             accuracy = correct / y.size(0)
             print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
-            if global_rank == 0 and local_rank == 0 and i % 250 == 0:
+            if global_rank == 0 and local_rank == 0 and (i + 1) % 250 == 0:
                 torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
-                rvh.save_samples(img)
+                # rvh.save_samples(img)
                 print("Model saved to models/model_b.pth")
                 # save_samples(batch, attention_maps, y_pred, y_actual)
         if scheduler is not None:
             scheduler.step()
+            if global_rank == 0 and local_rank == 0:
+                print(f"Epoch {epoch + 1} scheduler step!")
     model = model.to("cpu")
     dist.destroy_process_group()
     return model.module
@@ -117,7 +119,7 @@ if __name__ == "__main__":
     call(['mkdir', '-p', f'{parent_dir}/Codebase/samples'])
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
-    distributor = TorchDistributor(num_processes=8, local_mode=False, use_gpu=True)
+    distributor = TorchDistributor(num_processes=12, local_mode=False, use_gpu=True)
     model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"")
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
@@ -128,10 +130,9 @@ if __name__ == "__main__":
         torchvision.transforms.v2.ToImage(),
         torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
         torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
-        torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        torchvision.transforms.v2.Lambda(lambda x: torch.nn.functional.tanh(x))
+        torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    opt = optim.Adam(model.parameters(), lr=0.0001)
+    opt = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0)
     dataset = ImageNet(
         root=parent_dir + "/imagenet/",
         split="train",
@@ -144,7 +145,7 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs=3,
+        epochs=20,
         batch_size=48
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")

@@ -35,7 +35,6 @@ class MLDA_Block(torch.nn.Module):
         seq_len_new:int,
         mlp_dim: int,
         static_epsilon_weight: bool=False,
-        constrain_epsilon: bool=True,
         e2de_ratio: float=1.0,
         dropout:float=0.0,
         attention_dropout=0.0,
@@ -44,18 +43,14 @@ class MLDA_Block(torch.nn.Module):
     ):
         super().__init__()
         self.heads = heads
-        self.ln_q = norm_layer(dim1)
-        self.ln_kv = norm_layer(dim1)
+        self.ln_q = norm_layer(dim1, bias=False)
+        self.ln_kv = norm_layer(dim1, bias=False)
         #! This is ugly but I don't care :)
         # One-Shot Encoders
         self.e2de_ratio = e2de_ratio
         self.static_epsilon_weight = static_epsilon_weight
-        self.constrain_epsilon = constrain_epsilon
         if not static_epsilon_weight:
             self.e2de_ratio = torch.nn.Parameter(torch.tensor([e2de_ratio]), requires_grad=True)
-            self.sigmoid = torch.nn.Tanh()
-        self.tanh_1 = torch.nn.Tanh()
-        self.tanh_2 = torch.nn.Tanh()
         # Cheating by expressing epsilon as a learnable parameter
         self.dirty_epsilon_cq = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
         self.dirty_epsilon_ckv = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
@@ -66,94 +61,94 @@ class MLDA_Block(torch.nn.Module):
         self.t_mean_cq = None
         self.t_var_cq = None
         self.t_mean_cq = torch.nn.Sequential(
-        torch.nn.Linear(seq_length, seq_len_reduce, bias=True),
+        torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.t_var_cq = torch.nn.Sequential(
-            torch.nn.Linear(seq_length, seq_len_reduce, bias=True),
+            torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.qkv_ratio = None
         self.t_mean_ckv = torch.nn.Sequential(
-            torch.nn.Linear(seq_length, seq_len_reduce, bias=True),
+            torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.t_var_ckv = torch.nn.Sequential(
-            torch.nn.Linear(seq_length, seq_len_reduce, bias=True),
+            torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.mean_cq = torch.nn.Sequential(
-            torch.nn.Linear(dim1, dim2, bias=True),
+            torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
-            torch.nn.Linear(dim2, mean_var_hidden, bias=True),
+            torch.nn.Linear(dim2, mean_var_hidden, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.var_cq = torch.nn.Sequential(
-            torch.nn.Linear(dim1, dim2, bias=True),
+            torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
-            torch.nn.Linear(dim2, mean_var_hidden, bias=True),
+            torch.nn.Linear(dim2, mean_var_hidden, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.mean_ckv = torch.nn.Sequential(
-            torch.nn.Linear(dim1, dim2, bias=True),
+            torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
-            torch.nn.Linear(dim2, mean_var_hidden, bias=True),
+            torch.nn.Linear(dim2, mean_var_hidden, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.var_ckv = torch.nn.Sequential(
-            torch.nn.Linear(dim1, dim2, bias=True),
+            torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
-            torch.nn.Linear(dim2, mean_var_hidden, bias=True),
+            torch.nn.Linear(dim2, mean_var_hidden, bias=False),
             torch.nn.Dropout(dropout, inplace=False),
         )
         # Decoders
         self.t_qc_upsample = torch.nn.Sequential(
-            torch.nn.Linear(seq_len_reduce, seq_len_new, bias=True),
+            torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
         )
         self.t_kc_upsample = torch.nn.Sequential(
-            torch.nn.Linear(seq_len_reduce, seq_len_new, bias=True),
+            torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
         )
         self.t_vc_upsample = torch.nn.Sequential(
-            torch.nn.Linear(seq_len_reduce, seq_len_new, bias=True),
+            torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
         )
         self.qc_upsample_1 = torch.nn.Sequential( #! Since pytorch expects embed_dim to match query_dim, we need to upsample the query to dim3
-            torch.nn.Linear(mean_var_hidden, dim2, bias=True),
+            torch.nn.Linear(mean_var_hidden, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.kc_upsample = torch.nn.Sequential( #! Luckily, key and value can have different dimensions
-            torch.nn.Linear(mean_var_hidden, dim2, bias=True),
+            torch.nn.Linear(mean_var_hidden, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.vc_upsample = torch.nn.Sequential(
-            torch.nn.Linear(mean_var_hidden, dim2, bias=True),
+            torch.nn.Linear(mean_var_hidden, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.linear_mask = torch.nn.Sequential(
-            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True),
+            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
-            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True),
+            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=False),
             torch.nn.Dropout(dropout, inplace=False),
         )
         self.qc_upsample_2 = torch.nn.Sequential(
-            torch.nn.Linear(dim2, dim3, bias=True),
+            torch.nn.Linear(dim2, dim3, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
         # Attention
@@ -163,17 +158,18 @@ class MLDA_Block(torch.nn.Module):
             dropout=attention_dropout,
             kdim=dim2,
             vdim=dim2,
+            bias=False,
             batch_first=True
         )
         self.dropout = torch.nn.Dropout(dropout)
-        self.ln_2 = norm_layer(dim3)
+        self.ln_2 = norm_layer(dim3, bias=False)
         self.mlp = None
         if use_mlp:
             self.mlp = torch.nn.Sequential(
-                torch.nn.Linear(dim3, mlp_dim, bias=True),
+                torch.nn.Linear(dim3, mlp_dim, bias=False),
                 torch.nn.GELU(approximate='none'),
                 torch.nn.Dropout(dropout, inplace=False),
-                torch.nn.Linear(mlp_dim, dim3, bias=True),
+                torch.nn.Linear(mlp_dim, dim3, bias=False),
                 torch.nn.Dropout(dropout, inplace=False)
             )
 
@@ -205,10 +201,8 @@ class MLDA_Block(torch.nn.Module):
         if state_manager is not None:
             mean_cq, var_cq, mean_ckv, var_ckv = state_manager.get_mean_var_sums(mean_cq, var_cq, mean_ckv, var_ckv)
         # Compute samples
-        if not self.static_epsilon_weight and self.constrain_epsilon:
-            e2de_ratio_param = self.sigmoid(self.e2de_ratio)
-        zcq = mean_cq + self.tanh_1((e2de_ratio_param * torch.randn_like(var_cq)) + ((1 - e2de_ratio_param) * self.dirty_epsilon_cq)) * torch.exp(0.5 * var_cq)
-        zckv = mean_ckv + self.tanh_2((e2de_ratio_param * torch.randn_like(var_ckv)) + ((1 - e2de_ratio_param) * self.dirty_epsilon_ckv)) * torch.exp(0.5 * var_ckv)
+        zcq = mean_cq + (self.e2de_ratio * torch.randn_like(var_cq)) + (1 - self.e2de_ratio) * self.dirty_epsilon_cq * torch.exp(0.5 * var_cq)
+        zckv = mean_ckv + (self.e2de_ratio * torch.randn_like(var_ckv)) + ((1 - self.e2de_ratio) * self.dirty_epsilon_ckv) * torch.exp(0.5 * var_ckv)
         # Decoders
         if self.t_mean_cq:
             qc = zcq.permute(0, 2, 1)
@@ -249,10 +243,12 @@ class Block(torch.nn.Module):
         is_first_block: bool,
         is_last_block: bool,
         seq_len_reduce:int,
+        class_token: bool
     ):
         super().__init__()
         self.is_first_block = is_first_block
-        if is_first_block:
+        self.class_token = class_token
+        if is_first_block and class_token:
             self.adv_xq = torch.nn.Parameter(torch.randn(1, 1, dim1), requires_grad=True)
             self.adv_xkv = torch.nn.Parameter(torch.randn(1, 1, dim1), requires_grad=True)
             seq_length -= 1
@@ -293,7 +289,7 @@ class Block(torch.nn.Module):
             seq_length=seq_length,
             seq_len_reduce=seq_len_reduce,
             #! Stupid hack but we need a way to reduce and induce the class token while maintaing dimensional divisibility
-            seq_len_new=seq_length + (seq_len_step * 3) - (1 if is_first_block else -1 if is_last_block else 0),
+            seq_len_new=seq_length + (seq_len_step * 3) - (1 if is_first_block and class_token else -1 if is_last_block and class_token else 0),
             mlp_dim=(dim1 + (dim_step * 3)) * 2,
             use_mlp=True
         )
@@ -311,7 +307,7 @@ class Block(torch.nn.Module):
         xkv = self.decoder(xkv, state_manager=dsm, mask=mask)
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[1], 3).permute(0, 2, 1, 3)
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[2] * xkv.shape[3])
-        if self.is_first_block:
+        if self.is_first_block and self.class_token:
             adv_xq = self.adv_xq.expand(xq.shape[0], -1, -1)
             xq = torch.cat((adv_xq, xq), dim=1)
             adv_xkv = self.adv_xkv.expand(xkv.shape[0], -1, -1)
@@ -355,7 +351,8 @@ class EncoderDecoder_8(torch.nn.Module):
                     is_last_block=False,
                     seq_length=seq_length,
                     seq_len_step=-seq_len_step,
-                    seq_len_reduce=seq_len_reduce
+                    seq_len_reduce=seq_len_reduce,
+                    class_token=True
                 )
             )
             dim1 -= (dim_step * 3)
@@ -370,7 +367,8 @@ class EncoderDecoder_8(torch.nn.Module):
             is_last_block=False,
             seq_length=seq_length,
             seq_len_step=0,
-            seq_len_reduce=seq_len_reduce
+            seq_len_reduce=seq_len_reduce,
+            class_token=True
         )
         # Decoder-Blocks
         self.block_bottle_neck_2 = Block(
@@ -383,7 +381,8 @@ class EncoderDecoder_8(torch.nn.Module):
             is_last_block=False,
             seq_length=seq_length,
             seq_len_step=0,
-            seq_len_reduce=seq_len_reduce
+            seq_len_reduce=seq_len_reduce,
+            class_token=True
         )
         self.decoder_blocks = torch.nn.ModuleList()
         for i in range(3):
@@ -398,12 +397,13 @@ class EncoderDecoder_8(torch.nn.Module):
                     is_last_block=(i == 2),
                     seq_length=seq_length,
                     seq_len_step=seq_len_step,
-                    seq_len_reduce=seq_len_reduce
+                    seq_len_reduce=seq_len_reduce,
+                    class_token=True
                 )
             )
             dim1 += (dim_step * 3)
             seq_length += (seq_len_step * 3)
-        self.ln = norm_layer(dim1)
+        self.ln = norm_layer(dim1, bias=False)
 
     def forward(self, x):
         esm = ResidualStateManager()

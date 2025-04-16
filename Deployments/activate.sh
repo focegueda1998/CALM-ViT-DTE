@@ -18,7 +18,7 @@ sleep 30
 clear
 echo "Waiting for traing to end or 21000 seconds until deactivating..."
 export kill=false
-until [ $SECONDS -ge 21000 ] || [ "$kill" = "true" ]; do
+until [ "$kill" = "true" ]; do
     if [ "$KILL_AFTER_TRAINING"  = "true" ]; then
         export tail=$(kubectl logs --tail=8 master)
         echo "Inquiring master, last 4 lines:"

@@ -1,141 +1,126 @@
-apiVersion: v1
-kind: Pod
+apiVersion: batch/v1
+kind: Job
 metadata:
   name: slave03
   labels:
     k8s-app: spark-torch
 spec:
-  # affinity:
-  #  nodeAffinity:
-  #    requiredDuringSchedulingIgnoredDuringExecution:
-  #      nodeSelectorTerms:
-  #      - matchExpressions:
-  #        - key: nvidia.com/gpu.product
-  #          operator: In
-  #          values:
-  #           - NVIDIA-GeForce-RTX-2080-Ti
-  nodeSelector:
-    topology.kubernetes.io/region: us-west
-    topology.kubernetes.io/zone: fullerton
-  volumes:
-  - name: config-volume
-    persistentVolumeClaim:
-      claimName: datasets-pvc
-  initContainers:
-  - name: init-dns
-    image: busybox
-    command: ["sh", "-c"]
-    args:
-      - "echo $(hostname -i)\tslave03 >> /config/ips_temp"
-    volumeMounts:
-    - name: config-volume
-      mountPath: /config
-  containers:
-  - name: slave03
-    image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
-    resources:
-      limits:
-        memory: 32Gi
-        cpu: 10000m
-        nvidia.com/gpu: 2
-      requests:
-        memory: 32Gi
-        cpu: 10000m
-        nvidia.com/gpu: 2
-    ports:
-    - containerPort: 8088
-      hostPort: 8088
-      protocol: TCP
-    - containerPort: 9864
-      hostPort: 9864
-      protocol: TCP
-    - containerPort: 9000
-      hostPort: 9000
-      protocol: TCP
-    - containerPort: 9870
-      hostPort: 9870
-      protocol: TCP
-    - containerPort: 8042
-      hostPort: 8042
-      protocol: TCP
-    - containerPort: 9868
-      hostPort: 9868
-      protocol: TCP
-    - containerPort: 10020
-      hostPort: 10020
-      protocol: TCP
-    - containerPort: 19888
-      hostPort: 19888
-      protocol: TCP
-    - containerPort: 4040
-      hostPort: 4040
-      protocol: TCP
-    - containerPort: 7077
-      hostPort: 7077
-      protocol: TCP
-    - containerPort: 7078
-      hostPort: 7078
-      protocol: TCP
-    - containerPort: 8080
-      hostPort: 8080
-      protocol: TCP
-    - containerPort: 8081
-      hostPort: 8081
-      protocol: TCP
-    - containerPort: 9092
-      hostPort: 9092
-      protocol: TCP
-    - containerPort: 9093
-      hostPort: 9093
-      protocol: TCP
-    volumeMounts:
-    - name: config-volume
-      mountPath: /config
-    command: ["bash", "-c"]
-    args: [
-      "apt-get install libxcb-xinerama0 -y; \
-       apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
-       echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
-       echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
-       echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
-       source /usr/local/miniconda3/bin/activate; \
-       conda install -c conda-forge transformers -y; \
-       conda install -c conda-forge diffusers -y; \
-       conda install seaborn -y; \
-       conda install matplotlib -y; \
-       conda install scikit-learn -y; \
-       conda install pyqt -y; \
-       echo \"y\"| pip install pyqt5; \
-       conda install -c conda-forge libxcb -y; \
-       conda install -c conda-forge pillow -y; \
-       echo \"y\" | pip install torchsummary ; \
-       echo 'Reloading bashrc'; \
-       . /root/.bashrc; \
-       . /etc/profile; \
-       /usr/sbin/sshd; \
-       echo 'Checking for NVIDIA devices'; \
-       if ls /dev | grep -q 'nvidia[0-9]*'; then \
-         echo 'NVIDIA devices found!'; \
-       else \
-         echo 'NVIDIA devices not found'; \
-       fi; \
-       sleep 30; \
-       echo 'Fetching node IPs and updating /etc/hosts'; \
-       cat /config/ips_temp > /config/ips; \
-       cat /config/ips >> /etc/hosts; \
-       chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
-       echo 'Updated /etc/hosts'; \
-       sleep 15; \
-       echo 'Setting up Kafka Controller'; \
-       export CURRENT_SERVER_INDEX=3; \
-       export CLUSTER_UUID=$(cat /config/uuid); \
-       sed -i \"s#node.id=.*#node.id=${CURRENT_SERVER_INDEX}#g\" /usr/local/kafka/config/kraft/server.properties; \
-       sed -i \"s#controller.quorum.voters=.*#controller.quorum.voters=1@slave01:9093,2@slave02:9093,3@slave03:9093,4@master:9093#g\" /usr/local/kafka/config/kraft/server.properties; \
-       sed -i \"s#log.dirs=.*#log.dirs=/var/kafka#g\" /usr/local/kafka/config/kraft/server.properties; \
-       bash /usr/local/kafka/bin/kafka-storage.sh format -t ${CLUSTER_UUID} -c /usr/local/kafka/config/kraft/server.properties; \
-       bash /usr/local/kafka/bin/kafka-server-start.sh -daemon /usr/local/kafka/config/kraft/server.properties; \
-       echo 'awaiting for master to start'; \
-       tail -f /dev/null; "
-    ]
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        topology.kubernetes.io/region: us-west
+        topology.kubernetes.io/zone: fullerton
+      volumes:
+      - name: config-volume
+        persistentVolumeClaim:
+          claimName: datasets-pvc
+      containers:
+      - name: slave03
+        image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
+        resources:
+          limits:
+            memory: 24Gi
+            cpu: 8000m
+            nvidia.com/gpu: 2
+          requests:
+            memory: 24Gi
+            cpu: 8000m
+            nvidia.com/gpu: 2
+        ports:
+        - containerPort: 8088
+          hostPort: 8088
+          protocol: TCP
+        - containerPort: 9864
+          hostPort: 9864
+          protocol: TCP
+        - containerPort: 9000
+          hostPort: 9000
+          protocol: TCP
+        - containerPort: 9870
+          hostPort: 9870
+          protocol: TCP
+        - containerPort: 8042
+          hostPort: 8042
+          protocol: TCP
+        - containerPort: 9868
+          hostPort: 9868
+          protocol: TCP
+        - containerPort: 10020
+          hostPort: 10020
+          protocol: TCP
+        - containerPort: 19888
+          hostPort: 19888
+          protocol: TCP
+        - containerPort: 4040
+          hostPort: 4040
+          protocol: TCP
+        - containerPort: 7077
+          hostPort: 7077
+          protocol: TCP
+        - containerPort: 7078
+          hostPort: 7078
+          protocol: TCP
+        - containerPort: 8080
+          hostPort: 8080
+          protocol: TCP
+        - containerPort: 8081
+          hostPort: 8081
+          protocol: TCP
+        - containerPort: 9092
+          hostPort: 9092
+          protocol: TCP
+        - containerPort: 9093
+          hostPort: 9093
+          protocol: TCP
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+        command: ["bash", "-c"]
+        args: [
+          "
+          cat /config/spark-env.sh > /usr/local/spark/conf/spark-env.sh; \
+          cat /config/spark-defaults.conf > /usr/local/spark/conf/spark-defaults.conf; \
+          echo '0' > /config/state; \
+          apt-get install libxcb-xinerama0 -y; \
+          apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
+          echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
+          echo \"export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/local/miniconda3/lib/python3.12/site-packages/PyQt5/Qt5/plugins/platforms\" >> /root/.bashrc; \
+          echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
+          echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
+          echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
+          source /usr/local/miniconda3/bin/activate; \
+          conda install -c conda-forge transformers -y; \
+          conda install -c conda-forge diffusers -y; \
+          conda install seaborn -y; \
+          conda install matplotlib -y; \
+          conda install scikit-learn -y; \
+          conda install pyqt -y; \
+          echo \"y\"| pip install pyqt5; \
+          conda install -c conda-forge libxcb -y; \
+          conda install -c conda-forge pillow -y; \
+          echo \"y\" | pip install torchsummary ; \
+          echo 'Reloading bashrc'; \
+          . /root/.bashrc; \
+          . /etc/profile; \
+          /usr/sbin/sshd; \
+          echo 'Checking for NVIDIA devices'; \
+          if ls /dev | grep -q 'nvidia[0-9]*'; then \
+            echo 'NVIDIA devices found!'; \
+          else \
+            echo 'NVIDIA devices not found'; \
+          fi; \
+          sleep 15; \
+          echo 'Fetching node IPs and updating /etc/hosts'; \
+          cat /config/ips_temp > /config/ips; \
+          cat /config/ips >> /etc/hosts; \
+          cat /config/workers_tmp > /usr/local/spark/conf/workers; \
+          chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
+          echo 'Updated /etc/hosts'; \
+          sleep 15; \
+          echo 'awaiting for master to start'; \
+          until grep -q '1' /config/state; do \
+              sleep 5; \
+          done;
+          "
+        ]
