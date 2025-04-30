@@ -32,14 +32,8 @@ spec:
        cd /config; \
        mkdir -p imagenet; \
        cd imagenet; \
-       mkdir -p train; \
-       cd train; \
        wget --tries=inf -O ILSVRC2012_img_train.tar 'https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_train.tar'; \
-       cd ..; \
-       mkdir -p val; \
-       cd val; \
        wget --tries=inf -O ILSVRC2012_img_val.tar 'https://image-net.org/data/ILSVRC/2012/ILSVRC2012_img_val.tar'; \
-       cd ..; \
        wget --tries=inf -O ILSVRC2012_devkit_t12.tar.gz 'https://image-net.org/data/ILSVRC/2012/ILSVRC2012_devkit_t12.tar.gz'; \
        echo 'Dataset downloaded successfully.'; \
        tail -f /dev/null; 

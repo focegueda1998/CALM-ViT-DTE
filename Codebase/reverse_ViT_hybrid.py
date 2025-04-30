@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets import ImageNet
 from torch.optim.lr_scheduler import StepLR
 import csv
+from torchvision.transforms.functional import InterpolationMode
 from torchvision import models
 
 parent_dir = "/config"
@@ -112,7 +113,7 @@ def initialize_vit(device, weights: str="DEFAULT"):
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model = initialize_vit(device, type="l")
-    model = initialize_vit(device, weights=f"")
+    model = initialize_vit(device, weights=f"{parent_dir}/Codebase/models/model_b.pth")
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
@@ -122,21 +123,31 @@ if __name__ == '__main__':
 
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.v2.Compose([
-        torchvision.transforms.v2.Resize((256, 256)),
+        torchvision.transforms.v2.Resize((288, 288)),
+        torchvision.transforms.v2.RandomCrop((256, 256)),
+        torchvision.transforms.v2.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
+        torchvision.transforms.v2.RandomAffine(
+            degrees=(-1, 1),                 
+            translate=(0.1, 0.1),           
+            scale=(0.9, 1.1),              
+            shear=(0, 2),
+            interpolation=InterpolationMode.BILINEAR
+            ),
+        torchvision.transforms.v2.RandomHorizontalFlip(),
         torchvision.transforms.v2.ToImage(),
         torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
         torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
         torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    split = "train"
+    split = "val"
 
     dataset = ImageNet(
         root=parent_dir + "/imagenet/",
         split=split,
         transform=transform
     )
-    dataloader = DataLoader(dataset, batch_size=48, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=600, shuffle=True)
     if split == "train":
         for epoch in range(5):
             model.train()
@@ -172,7 +183,7 @@ if __name__ == '__main__':
                 y = y.to(device)
                 y_hat = model(x)
                 _, predicted = torch.max(y_hat.data, 1)
-                correct = (predicted == y).sum().item()
-                total = y.size(0)
-                print(f"Batch {i}, Accuracy: {correct} / {total}")
+                correct += (predicted == y).sum().item()
+                total += y.size(0)
+                print(f"Batch {i}, Accuracy: {(correct / total) * 100}%")
                 # save_samples(img)

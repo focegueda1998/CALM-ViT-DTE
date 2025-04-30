@@ -47,11 +47,11 @@ def train(initializer, optimizer, scheduler,
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    scheduler = StepLR(optimizer, step_size=1, gamma=0.5)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
     model = initializer
     model = model.to(device)
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
-    sampler = DistributedSampler(dataset, shuffle=True, seed=420)
+    sampler = DistributedSampler(dataset, shuffle=True, seed=2006)
     sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     criterion = torch.nn.CrossEntropyLoss()
@@ -120,19 +120,27 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=12, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"")
+    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_b.pth")
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.v2.Compose([
-        torchvision.transforms.v2.Resize((256, 256)),
+        torchvision.transforms.v2.Resize((288, 288)),
+        torchvision.transforms.v2.RandomCrop((256, 256)),
+        torchvision.transforms.v2.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
+        torchvision.transforms.v2.RandomAffine(
+            degrees=(-1, 1),                 
+            translate=(0.1, 0.1),           
+            scale=(0.9, 1.1),              
+            shear=(0, 2),                     
+            interpolation=InterpolationMode.BILINEAR
+        ),
         torchvision.transforms.v2.RandomHorizontalFlip(),
         torchvision.transforms.v2.ToImage(),
         torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
         torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
         torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    opt = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0)
+    opt = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.05)
     dataset = ImageNet(
         root=parent_dir + "/imagenet/",
         split="train",
@@ -145,8 +153,8 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs=20,
-        batch_size=48
+        epochs=5,
+        batch_size=45
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
     print(f"Model saved to {parent_dir}/Codebase/models/model_b.pth")

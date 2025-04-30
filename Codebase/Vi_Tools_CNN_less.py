@@ -22,7 +22,7 @@ class ResidualStateManager():
 
 
 # Multi-Head Latent Distribution Attention
-class MLDA_Block(torch.nn.Module):
+class VMLA_Block(torch.nn.Module):
     def __init__(
         self,
         heads: int,
@@ -52,57 +52,57 @@ class MLDA_Block(torch.nn.Module):
         if not static_epsilon_weight:
             self.e2de_ratio = torch.nn.Parameter(torch.tensor([e2de_ratio]), requires_grad=True)
         # Cheating by expressing epsilon as a learnable parameter
-        self.dirty_epsilon_cq = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
-        self.dirty_epsilon_ckv = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
+        self.dirty_epsilon_zq = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
+        self.dirty_epsilon_zkv = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
         # Mean and Variance Bottleneck
         #! Since our query window can differ in size, only compute the head reduction if it's not the first block
         #! or our QKV values are the same. We can probably fix the sequence length to be the same for all blocks.
         #! But the hypothetical peformance gain is minimal.
-        self.t_mean_cq = None
-        self.t_var_cq = None
-        self.t_mean_cq = torch.nn.Sequential(
+        self.t_mean_zq = None
+        self.t_var_zq = None
+        self.t_mean_zq = torch.nn.Sequential(
         torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.t_var_cq = torch.nn.Sequential(
+        self.t_var_zq = torch.nn.Sequential(
             torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
         self.qkv_ratio = None
-        self.t_mean_ckv = torch.nn.Sequential(
+        self.t_mean_zkv = torch.nn.Sequential(
             torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.t_var_ckv = torch.nn.Sequential(
+        self.t_var_zkv = torch.nn.Sequential(
             torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.mean_cq = torch.nn.Sequential(
+        self.mean_zq = torch.nn.Sequential(
             torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
             torch.nn.Linear(dim2, mean_var_hidden, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.var_cq = torch.nn.Sequential(
+        self.var_zq = torch.nn.Sequential(
             torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
             torch.nn.Linear(dim2, mean_var_hidden, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.mean_ckv = torch.nn.Sequential(
+        self.mean_zkv = torch.nn.Sequential(
             torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
             torch.nn.Linear(dim2, mean_var_hidden, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.var_ckv = torch.nn.Sequential(
+        self.var_zkv = torch.nn.Sequential(
             torch.nn.Linear(dim1, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
@@ -110,32 +110,32 @@ class MLDA_Block(torch.nn.Module):
             torch.nn.Dropout(dropout, inplace=False),
         )
         # Decoders
-        self.t_qc_upsample = torch.nn.Sequential(
+        self.t_qz_upsample = torch.nn.Sequential(
             torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
         )
-        self.t_kc_upsample = torch.nn.Sequential(
+        self.t_kz_upsample = torch.nn.Sequential(
             torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
         )
-        self.t_vc_upsample = torch.nn.Sequential(
+        self.t_vz_upsample = torch.nn.Sequential(
             torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False),
         )
-        self.qc_upsample_1 = torch.nn.Sequential( #! Since pytorch expects embed_dim to match query_dim, we need to upsample the query to dim3
+        self.qz_upsample_1 = torch.nn.Sequential( #! Since pytorch expects embed_dim to match query_dim, we need to upsample the query to dim3
             torch.nn.Linear(mean_var_hidden, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.kc_upsample = torch.nn.Sequential( #! Luckily, key and value can have different dimensions
+        self.kz_upsample = torch.nn.Sequential( #! Luckily, key and value can have different dimensions
             torch.nn.Linear(mean_var_hidden, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )
-        self.vc_upsample = torch.nn.Sequential(
+        self.vz_upsample = torch.nn.Sequential(
             torch.nn.Linear(mean_var_hidden, dim2, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
@@ -147,7 +147,7 @@ class MLDA_Block(torch.nn.Module):
             torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=False),
             torch.nn.Dropout(dropout, inplace=False),
         )
-        self.qc_upsample_2 = torch.nn.Sequential(
+        self.qz_upsample_2 = torch.nn.Sequential(
             torch.nn.Linear(dim2, dim3, bias=False),
             torch.nn.Dropout(dropout, inplace=False)
         )
@@ -180,50 +180,50 @@ class MLDA_Block(torch.nn.Module):
         xkv = input_kv
         xq = self.ln_q(xq)
         xkv = self.ln_kv(xkv)
-        if self.t_mean_cq:
+        if self.t_mean_zq:
             xq = xq.permute(0, 2, 1)
-            mean_cq = self.t_mean_cq(xq)
-            var_cq = self.t_var_cq(xq)
-            mean_cq = mean_cq.permute(0, 2, 1)
-            var_cq = var_cq.permute(0, 2, 1)
+            mean_zq = self.t_mean_zq(xq)
+            var_zq = self.t_var_zq(xq)
+            mean_zq = mean_zq.permute(0, 2, 1)
+            var_zq = var_zq.permute(0, 2, 1)
         else:
-            mean_cq = xq
-            var_cq = xq
-        mean_ckv = self.t_mean_ckv(xkv.permute(0, 2, 1))
-        var_ckv = self.t_var_ckv(xkv.permute(0, 2, 1))
-        mean_ckv = mean_ckv.permute(0, 2, 1)
-        var_ckv = var_ckv.permute(0, 2, 1)
-        mean_cq = self.mean_cq(mean_cq)
-        var_cq = self.var_cq(var_cq)
-        mean_ckv = self.mean_ckv(mean_ckv)
-        var_ckv = self.var_ckv(var_ckv)
+            mean_zq = xq
+            var_zq = xq
+        mean_zkv = self.t_mean_zkv(xkv.permute(0, 2, 1))
+        var_zkv = self.t_var_zkv(xkv.permute(0, 2, 1))
+        mean_zkv = mean_zkv.permute(0, 2, 1)
+        var_zkv = var_zkv.permute(0, 2, 1)
+        mean_zq = self.mean_zq(mean_zq)
+        var_zq = self.var_zq(var_zq)
+        mean_zkv = self.mean_zkv(mean_zkv)
+        var_zkv = self.var_zkv(var_zkv)
         # Get residual states from state manager
         if state_manager is not None:
-            mean_cq, var_cq, mean_ckv, var_ckv = state_manager.get_mean_var_sums(mean_cq, var_cq, mean_ckv, var_ckv)
+            mean_zq, var_zq, mean_zkv, var_zkv = state_manager.get_mean_var_sums(mean_zq, var_zq, mean_zkv, var_zkv)
         # Compute samples
-        zcq = mean_cq + (self.e2de_ratio * torch.randn_like(var_cq)) + (1 - self.e2de_ratio) * self.dirty_epsilon_cq * torch.exp(0.5 * var_cq)
-        zckv = mean_ckv + (self.e2de_ratio * torch.randn_like(var_ckv)) + ((1 - self.e2de_ratio) * self.dirty_epsilon_ckv) * torch.exp(0.5 * var_ckv)
+        zq = mean_zq + ((self.e2de_ratio * torch.randn_like(var_zq)) + ((1 - self.e2de_ratio) * self.dirty_epsilon_zq)) * torch.exp(0.5 * var_zq)
+        zkv = mean_zkv + ((self.e2de_ratio * torch.randn_like(var_zkv)) + ((1 - self.e2de_ratio) * self.dirty_epsilon_zkv)) * torch.exp(0.5 * var_zkv)
         # Decoders
-        if self.t_mean_cq:
-            qc = zcq.permute(0, 2, 1)
-            qc = self.t_qc_upsample(qc)
-            qc = qc.permute(0, 2, 1)
-        ckv = zckv.permute(0, 2, 1)
-        kc = self.t_kc_upsample(ckv)
-        kc = kc.permute(0, 2, 1)
-        vc = self.t_vc_upsample(ckv)
-        vc = vc.permute(0, 2, 1)
-        qc = self.qc_upsample_1(qc if self.t_mean_cq else zcq)
-        kc = self.kc_upsample(kc)
-        vc = self.vc_upsample(vc)
-        mask_mat = self.linear_mask(qc @ kc.permute(0, 2, 1)) if mask else None
+        if self.t_mean_zq:
+            qz = zq.permute(0, 2, 1)
+            qz = self.t_qz_upsample(qz)
+            qz = qz.permute(0, 2, 1)
+        zkv = zkv.permute(0, 2, 1)
+        kz = self.t_kz_upsample(zkv)
+        kz = kz.permute(0, 2, 1)
+        vz = self.t_vz_upsample(zkv)
+        vz = vz.permute(0, 2, 1)
+        qz = self.qz_upsample_1(qz if self.t_mean_zq else zq)
+        kz = self.kz_upsample(kz)
+        vz = self.vz_upsample(vz)
+        mask_mat = self.linear_mask(qz @ kz.permute(0, 2, 1)) if mask else None
         mask_mat = mask_mat.reshape(mask_mat.shape[0], 1, mask_mat.shape[1], mask_mat.shape[2]).repeat(1, self.heads, 1, 1)
         mask_mat = mask_mat.reshape(mask_mat.shape[0] * mask_mat.shape[1] , mask_mat.shape[2], mask_mat.shape[3])
-        qc = self.qc_upsample_2(qc)
+        qz = self.qz_upsample_2(qz)
         # Attention
-        x, _ = self.attention(qc, kc, vc, attn_mask=mask_mat)
+        x, _ = self.attention(qz, kz, vz, attn_mask=mask_mat)
         x = self.dropout(x)
-        x = x + qc
+        x = x + qz
         if x.shape == input_q.shape: x += input_q
         if self.mlp is not None:
             y = self.ln_2(x)
@@ -253,7 +253,7 @@ class Block(torch.nn.Module):
             self.adv_xkv = torch.nn.Parameter(torch.randn(1, 1, dim1), requires_grad=True)
             seq_length -= 1
         self.time_embedding_xq = torch.nn.Parameter(torch.randn(1, 1, dim1), requires_grad=True)
-        self.encoder= MLDA_Block(
+        self.encoder= VMLA_Block(
             heads=heads,
             dim1=dim1,
             dim2=dim2,
@@ -266,7 +266,7 @@ class Block(torch.nn.Module):
             use_mlp=True
         )
         self.time_embedding_xkv = torch.nn.Parameter(torch.randn(1, 1, dim1), requires_grad=True)
-        self.decoder = MLDA_Block(
+        self.decoder = VMLA_Block(
             heads=heads,
             dim1=dim1,
             dim2=dim2,
@@ -280,7 +280,7 @@ class Block(torch.nn.Module):
         )
         if is_first_block:
             seq_length += 1
-        self.cross= MLDA_Block(
+        self.cross= VMLA_Block(
             heads=heads,
             dim1=dim1,
             dim2=dim2,
