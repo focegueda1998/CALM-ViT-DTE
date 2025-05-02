@@ -1,6 +1,5 @@
-Codebase-*
-Codebase/__pycache__
-Codebase/models
+*/__pycache__
+*/models
 *.tar.gz
 *.tgz
 *.jar

@@ -5,7 +5,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import pyspark
-import reverse_ViT_hybrid as rvh
+import CALM_ViT as rvh
 import gc
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
