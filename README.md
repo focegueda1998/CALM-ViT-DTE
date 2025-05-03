@@ -2,7 +2,7 @@
 
 ![A sample generated via CALM-ViT](CALM-ViT/samples/sample_14.png)
 
-A novel method for Grid-Wise & Latent Attention in a Vision Tranformer. There are three sub-directories of note inside of this repository:
+A novel method for Grid-Wise & Latent Attention in a Vision Tranformer. There are three sub-directories of note inside in this repository:
 
 - CALM-ViT: This is the Axial Vision Transformer used as the experimental implementation including tools for the distributed training enviroment. As of now, this component is quite user unfriendly so just the bare minimum architectural tools and single implementation is provided.
 
