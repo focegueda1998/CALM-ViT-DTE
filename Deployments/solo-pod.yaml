@@ -14,7 +14,7 @@ spec:
       claimName: datasets-pvc
   containers:
   - name: solo
-    image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
+    image: "gitlab-registry.nrp-nautilus.io/focegueda/calm-vit-dte/sparktorchkafka:latest"
     resources:
       limits:
         memory: 16Gi
@@ -44,6 +44,8 @@ spec:
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        echo \"\" >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
+       conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main; \ 
+       conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r; \
        conda install -c conda-forge transformers -y; \
        conda install -c conda-forge diffusers -y; \
        conda install seaborn -y; \
@@ -59,7 +61,7 @@ spec:
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \
        . /etc/profile; \
-       /usr/sbin/sshd; \ \
+       /usr/sbin/sshd; \
        echo 'Directories Set Up'; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
        echo 'solo' > /usr/local/spark/conf/workers; \
