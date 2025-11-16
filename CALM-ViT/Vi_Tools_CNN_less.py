@@ -61,7 +61,7 @@ class VMLA_Block(torch.nn.Module):
         self.t_mean_zq = None
         self.t_var_zq = None
         self.t_mean_zq = torch.nn.Sequential(
-        torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
+            torch.nn.Linear(seq_length, seq_len_reduce, bias=False),
             torch.nn.GELU(approximate='none'),
             torch.nn.Dropout(dropout, inplace=False)
         )

@@ -5,9 +5,9 @@ metadata:
   labels:
     k8s-app: pytorch
 spec:
-  nodeSelector:
-    topology.kubernetes.io/region: us-west
-    topology.kubernetes.io/zone: fullerton
+  # nodeSelector:
+  #   topology.kubernetes.io/region: us-west
+  #   topology.kubernetes.io/zone: fullerton
   volumes:
   - name: config-volume
     persistentVolumeClaim:
@@ -18,11 +18,11 @@ spec:
     resources:
       limits:
         memory: 16Gi
-        cpu: 10000m
+        cpu: 8000m
         nvidia.com/gpu: 1
       requests:
         memory: 16Gi
-        cpu: 10000m
+        cpu: 8000m
         nvidia.com/gpu: 1
     volumeMounts:
     - name: config-volume
