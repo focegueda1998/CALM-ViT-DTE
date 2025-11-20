@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: solo
+  name: solo-2
   labels:
     k8s-app: pytorch
 spec:
@@ -13,7 +13,7 @@ spec:
     persistentVolumeClaim:
       claimName: datasets-pvc
   containers:
-  - name: solo
+  - name: solo-2
     image: "gitlab-registry.nrp-nautilus.io/focegueda/calm-vit-dte/sparktorchkafka:latest"
     resources:
       limits:
@@ -70,8 +70,8 @@ spec:
        /usr/sbin/sshd; \
        echo 'Directories Set Up'; \
        chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
-       echo 'solo' > /usr/local/spark/conf/workers; \
-       ./usr/local/spark/sbin/start-all.sh --host solo --port 7077; \
+       echo 'solo-2' > /usr/local/spark/conf/workers; \
+       ./usr/local/spark/sbin/start-all.sh --host solo-2 --port 7077; \
        tail -f /dev/null;
        "
     ]

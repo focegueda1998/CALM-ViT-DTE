@@ -1,6 +1,6 @@
 import torch
 import torchvision.transforms.v2
-import Vi_Tools_CNN_less as vt
+import Vi_Tools_CNN_less_V2 as vt
 import torchvision
 import torch.optim as optim
 import random
@@ -17,39 +17,59 @@ parent_dir = "/config"
 
 # Now completely decoupled from the PyTorch module!
 class ViT(torch.nn.Module):
-    def __init__(self, device, type=8, heads=16, seq_length=256, in_features=768, dim2=256, mean_var_hidden=192, out_features=1000, generate=False):
+    def __init__(self, device, type=8, heads=12, seq_length=256, in_features=768,
+                 dim2=256, dim_step=48, mean_var_hidden=192,
+                 seq_len_step=16, seq_len_reduce=128, out_features=1000,
+                 force_reduce=False, generate=True):
         super().__init__()
         self.device = device
         self.generate = generate
         self.num_classes = out_features
         self.seq_length = seq_length
-        if type == 8:
+        # We use two sets of positional embeddings, one for the encoder (row tokens) and one
+        # for the decoder (columns).
+        # self.pos_embeddings = [torch.nn.Parameter(torch.zeros(1, seq_length, in_features)).to(device),
+        #                        torch.nn.Parameter(torch.zeros(1, seq_length, in_features)).to(device)]
+        self.pos_embeddings = None
+        if type == 8 and generate:
             self.autoencoder = vt.EncoderDecoder_8(
                 heads=heads,
-                seq_length=seq_length + 1,
                 dim1=in_features,
                 dim2=dim2,
-                mean_var_hidden=mean_var_hidden
+                dim_step=dim_step,
+                mean_var_hidden=mean_var_hidden,
+                seq_length=seq_length,
+                seq_len_step=seq_len_step,
+                seq_len_reduce=seq_len_reduce,
+                out_features_override=None,
+                force_reduce=force_reduce
             ).to(device)
-        if not generate:
-            self.head = torch.nn.Sequential(
-                torch.nn.Linear(in_features, in_features*2, bias=False),
-                torch.nn.Linear(in_features*2, in_features*2, bias=False),
-                torch.nn.Linear(in_features*2, out_features, bias=False)
+        if type == 8 and not generate:
+            self.autoencoder = vt.Encoder_8(
+                heads=heads,
+                dim1=in_features,
+                dim2=dim2,
+                dim_step=dim_step,
+                mean_var_hidden=mean_var_hidden,
+                seq_length=seq_length,
+                seq_len_step=seq_len_step,
+                seq_len_reduce=seq_len_reduce,
+                out_features_override=out_features,
+                force_reduce=force_reduce
             ).to(device)
-        else:
-            self.head = torch.nn.Sequential(
-                torch.nn.Linear(in_features, in_features*2, bias=True),
-                torch.nn.Linear(in_features*2, in_features*2, bias=True),
-                torch.nn.Linear(in_features*2, in_features, bias=True)
-            ).to(device)
+        self.head = torch.nn.Sequential(
+            torch.nn.Linear(192, in_features*2, bias=generate),
+            torch.nn.Linear(in_features*2, in_features*2, bias=generate),
+            torch.nn.Linear(in_features*2, out_features if not generate else in_features, bias=generate),
+        ).to(device)
 
     def forward(self, q):
-        x = self.autoencoder(q)
+        x = self.autoencoder(q, self.pos_embeddings)
         if not self.generate:
-            x = self.head(x[:, 0])
+            # Average pool the sequence dimension
+            x = self.head(x[:,0])
         else:
-            x = self.head(x[:, 1:])
+            x = self.head(x)
         return x
 
 class ImageDataset(Dataset):
@@ -113,7 +133,10 @@ def initialize_vit(device, weights: str="DEFAULT"):
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model = initialize_vit(device, type="l")
-    model = initialize_vit(device, weights=f"{parent_dir}/Codebase/models/model_b.pth")
+    model = ViT(device, type=8, heads=12, seq_length=256, in_features=768,
+                 dim2=256, dim_step=48, mean_var_hidden=192,
+                 seq_len_step=16, seq_len_reduce=128, out_features=1000,
+                 force_reduce=False, generate=False)
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
@@ -123,7 +146,7 @@ if __name__ == '__main__':
 
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.v2.Compose([
-        torchvision.transforms.v2.Resize((288, 288)),
+        torchvision.transforms.v2.Resize((272, 272)),
         torchvision.transforms.v2.RandomCrop((256, 256)),
         torchvision.transforms.v2.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
         torchvision.transforms.v2.RandomAffine(
