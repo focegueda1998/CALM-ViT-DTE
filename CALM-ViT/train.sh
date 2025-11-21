@@ -2,14 +2,14 @@
 
 $SPARK_HOME/bin/spark-submit \
        --master spark://$(hostname):7077 \
-       --driver-memory 12G \
-       --driver-cores 6 \
+       --driver-memory 3G \
+       --driver-cores 2 \
        --conf spark.log.level=ERROR \
        --conf spark.plugins="" \
        --conf spark.driver.resource.gpu.amount=0 \
        --conf spark.driver.resource.gpu.discoveryScript=${SPARK_RAPIDS_DIR}/getGpusResources.sh \
-       --conf spark.executor.memory=10G \
-       --conf spark.executor.instances=12 \
+       --conf spark.executor.memory=6G \
+       --conf spark.executor.instances=2 \
        --conf spark.executor.cores=3 \
        --conf spark.task.cpus=3 \
        --conf spark.files.overwrite=true \
@@ -22,4 +22,4 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.executor.resource.gpu.discoveryScript=${SPARK_RAPIDS_DIR}/getGpusResources.sh \
        --conf spark.scheduler.barrier.maxConcurrentTasksCheck.maxFailures=1 \
        --files ${SPARK_RAPIDS_DIR}/getGpusResources.sh \
-       --py-files file:///config/Codebase/Vi_Tools_CNN_less.py,file:///config/Codebase/reverse_ViT_hybrid.py file:///config/Codebase/distributed_trainer.py ;
+       --py-files file:///config/Codebase/Vi_Tools_CNN_less_V2.py,file:///config/Codebase/CALM_ViT_V2.py file:///config/Codebase/distributed_trainer.py ;

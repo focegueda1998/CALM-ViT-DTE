@@ -5,7 +5,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import pyspark
-import CALM_ViT as rvh
+import CALM_ViT_V2 as rvh
 import gc
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
@@ -120,27 +120,31 @@ if __name__ == "__main__":
     sc = SparkContext.getOrCreate()
     spark = SparkSession.builder.getOrCreate()
     distributor = TorchDistributor(num_processes=12, local_mode=False, use_gpu=True)
-    model = rvh.initialize_vit(torch.device("cuda" if torch.cuda.is_available() else "cpu"), weights=f"{parent_dir}/Codebase/models/model_b.pth")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
+                 dim_step=48, mean_var_hidden=160,
+                 seq_len_step=16, seq_len_reduce=96, out_features=1000,
+                 force_reduce=False, generate=False)
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.v2.Compose([
-        torchvision.transforms.v2.Resize((288, 288)),
-        torchvision.transforms.v2.RandomCrop((256, 256)),
+        torchvision.transforms.v2.Resize((240, 240)),
+        torchvision.transforms.v2.RandomCrop((224, 224)),
         torchvision.transforms.v2.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
         torchvision.transforms.v2.RandomAffine(
             degrees=(-1, 1),                 
             translate=(0.1, 0.1),           
             scale=(0.9, 1.1),              
-            shear=(0, 2),                     
+            shear=(0, 2),
             interpolation=InterpolationMode.BILINEAR
-        ),
+            ),
         torchvision.transforms.v2.RandomHorizontalFlip(),
         torchvision.transforms.v2.ToImage(),
         torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
         torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
         torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    opt = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.05)
+    opt = optim.AdamW(model.parameters(), lr=3.1e-5, weight_decay=0.05)
     dataset = ImageNet(
         root=parent_dir + "/imagenet/",
         split="train",

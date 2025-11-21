@@ -18,7 +18,7 @@ parent_dir = "/config"
 # Now completely decoupled from the PyTorch module!
 class ViT(torch.nn.Module):
     def __init__(self, device, type=8, heads=12, seq_length=256, in_features=768,
-                 dim2=256, dim_step=48, mean_var_hidden=192,
+                 dim_step=48, mean_var_hidden=192,
                  seq_len_step=16, seq_len_reduce=128, out_features=1000,
                  force_reduce=False, generate=True):
         super().__init__()
@@ -35,7 +35,6 @@ class ViT(torch.nn.Module):
             self.autoencoder = vt.EncoderDecoder_8(
                 heads=heads,
                 dim1=in_features,
-                dim2=dim2,
                 dim_step=dim_step,
                 mean_var_hidden=mean_var_hidden,
                 seq_length=seq_length,
@@ -48,7 +47,6 @@ class ViT(torch.nn.Module):
             self.autoencoder = vt.Encoder_8(
                 heads=heads,
                 dim1=in_features,
-                dim2=dim2,
                 dim_step=dim_step,
                 mean_var_hidden=mean_var_hidden,
                 seq_length=seq_length,
@@ -57,17 +55,19 @@ class ViT(torch.nn.Module):
                 out_features_override=out_features,
                 force_reduce=force_reduce
             ).to(device)
-        self.head = torch.nn.Sequential(
-            torch.nn.Linear(192, in_features*2, bias=generate),
-            torch.nn.Linear(in_features*2, in_features*2, bias=generate),
-            torch.nn.Linear(in_features*2, out_features if not generate else in_features, bias=generate),
-        ).to(device)
-
+        if not generate:
+            self.pool = torch.nn.AdaptiveAvgPool1d(1).to(device)
+            self.dim_final = in_features - (dim_step * 3 * 4)
+        self.head = torch.nn.Linear(self.dim_final if not generate else in_features,
+                                    out_features if not generate else in_features,
+                                    bias=generate).to(device)
     def forward(self, q):
         x = self.autoencoder(q, self.pos_embeddings)
         if not self.generate:
             # Average pool the sequence dimension
-            x = self.head(x[:,0])
+            x = x.permute(0, 2, 1)
+            x = self.pool(x).squeeze(-1)
+            x = self.head(x)
         else:
             x = self.head(x)
         return x
@@ -133,11 +133,11 @@ def initialize_vit(device, weights: str="DEFAULT"):
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model = initialize_vit(device, type="l")
-    model = ViT(device, type=8, heads=12, seq_length=256, in_features=768,
-                 dim2=256, dim_step=48, mean_var_hidden=192,
-                 seq_len_step=16, seq_len_reduce=128, out_features=1000,
+    model = ViT(device, type=8, heads=12, seq_length=224, in_features=672,
+                 dim_step=48, mean_var_hidden=160,
+                 seq_len_step=16, seq_len_reduce=96, out_features=1000,
                  force_reduce=False, generate=False)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = optim.Adam(model.parameters(), lr=1e-5)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
     # criterion_mse = torch.nn.MSELoss()
@@ -146,8 +146,8 @@ if __name__ == '__main__':
 
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     transform = torchvision.transforms.v2.Compose([
-        torchvision.transforms.v2.Resize((272, 272)),
-        torchvision.transforms.v2.RandomCrop((256, 256)),
+        torchvision.transforms.v2.Resize((240, 240)),
+        torchvision.transforms.v2.RandomCrop((224, 224)),
         torchvision.transforms.v2.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
         torchvision.transforms.v2.RandomAffine(
             degrees=(-1, 1),                 

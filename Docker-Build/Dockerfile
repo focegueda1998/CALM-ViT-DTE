@@ -2,7 +2,7 @@
 # Would have used 24.04 but there is some minor issues with the nvidia/cuda image.
 # You may choose to use a different base image at your own discretion; just be aware
 # this Dockerfile is built specifically for: nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04.
-FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:12.9.1-base-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 # Copy Hadoop and Spark tarballs to /usr/local/
@@ -35,8 +35,13 @@ RUN apt-get update && \
     /usr/local/miniconda3/bin/conda config --set report_errors false && \
     /usr/local/miniconda3/bin/conda update -n base conda -y && \
     # Install packages after ToS acceptance
-    /usr/local/miniconda3/bin/conda install pyspark -y && \
-    /usr/local/miniconda3/bin/conda install python=3.11 pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia -y && \
+    /usr/local/miniconda3/bin/conda install python=3.11 -y &&\
+    . /usr/local/miniconda3/bin/activate &&\
+    echo \"y\" | pip install torch &&\
+    echo \"y\" | pip install torchvision &&\
+    echo \"y\" | pip install torchaudio &&\
+    echo \"y\" | pip install torchsummary &&\
+    echo \"y\" | pip install pyspark &&\
     mkdir -p /usr/lib/spark/scripts/gpu/ && \
     cd /usr/lib/spark/scripts/gpu/ && \
     wget https://raw.githubusercontent.com/apache/spark/master/examples/src/main/scripts/getGpusResources.sh && \

@@ -69,75 +69,42 @@ class VMLA_Block(torch.nn.Module):
         heads: int,
         dim1: int,
         dim2: int,
-        dim3: int,
         mean_var_hidden: int,
         seq_length: int,
         seq_len_reduce:int,
         seq_len_new:int,
         mlp_dim: int,
         force_reduce: bool=True, # Force reduction even if input and output dims / seq lengths are the same (NOT RECOMMENDED; REQUIRES A LOT MORE PARAMETERS)
-        static_epsilon_weight: bool=False,
-        e2de_ratio: float=1.0, # 1 for full stochasticity, 0 for deterministic, this will be learnable if static_epsilon_weight is False
         dropout:float=0.0,
         use_mlp: bool=True,
+        training: bool=True,
         norm_layer: Callable[..., torch.nn.Module] = partial(torch.nn.LayerNorm, eps=1e-6)
     ):
         super().__init__()
+        self.training = training
         self.heads = heads
-        self.head_dim_content = dim3 // heads // 2
-        self.head_dim_rope = dim3 // heads // 2
+        self.head_dim_content = dim2 // heads // 2
+        self.head_dim_rope = dim2 // heads // 2
         self.head_dim = self.head_dim_content + self.head_dim_rope
         #! This is ugly but I don't care :)
         # One-Shot Encoders
-        self.e2de_ratio = None
-        self.static_epsilon_weight = None
-        self.dirty_epsilon_zq = None
-        self.dirty_epsilon_zkv = None
         self.t_reduce = seq_len_new != seq_length or force_reduce
-        self.reduce = dim1 != dim3 or force_reduce
-        if self.reduce and self.t_reduce:
-            self.e2de_ratio = e2de_ratio
-            self.static_epsilon_weight = static_epsilon_weight
-            if not static_epsilon_weight:
-                self.e2de_ratio = torch.nn.Parameter(torch.tensor([e2de_ratio]), requires_grad=True)
-            # Cheating by expressing epsilon as a learnable parameter
-            self.dirty_epsilon_zq = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
-            self.dirty_epsilon_zkv = torch.nn.Parameter(torch.randn(1, seq_len_reduce, mean_var_hidden), requires_grad=True)
+        self.reduce = dim1 != dim2 or force_reduce
         # Mean and Variance Bottleneck
         self.ln_q = norm_layer(dim1, bias=False)
         self.ln_kv = norm_layer(dim1, bias=False)
-        self.t_mean_zq = None
-        self.t_var_zq = None
-        self.t_mean_zkv = None
-        self.t_var_zkv = None
+        self.t_encoder_q = None
+        self.t_encoder_kv = None
         # Only apply token temporal reduction if seq_len_reduce is different from seq_length (or forced)
         if self.t_reduce:
-            self.t_mean_zq = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
-            self.t_var_zq = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
-            self.t_mean_zkv = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
-            self.t_var_zkv = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
+            self.t_encoder_q = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
+            self.t_encoder_kv = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
         # Only compute the mean and variance projections if input and output dims differ
-        self.mean_zq = None
-        self.var_zq = None
-        self.mean_zkv = None
-        self.var_zkv = None
+        self.encoder_q = None
+        self.encoder_kv = None
         if self.reduce:
-            self.mean_zq = torch.nn.Sequential(
-                torch.nn.Linear(dim1, dim2, bias=False),
-                torch.nn.Linear(dim2, mean_var_hidden, bias=False)
-            )
-            self.var_zq = torch.nn.Sequential(
-                torch.nn.Linear(dim1, dim2, bias=False),
-                torch.nn.Linear(dim2, mean_var_hidden, bias=False)
-            )
-            self.mean_zkv = torch.nn.Sequential(
-                torch.nn.Linear(dim1, dim2, bias=False),
-                torch.nn.Linear(dim2, mean_var_hidden, bias=False)
-            )
-            self.var_zkv = torch.nn.Sequential(
-                torch.nn.Linear(dim1, dim2, bias=False),
-                torch.nn.Linear(dim2, mean_var_hidden, bias=False)
-            )
+            self.encoder_q = torch.nn.Linear(dim1, mean_var_hidden * 2, bias=False)
+            self.encoder_kv = torch.nn.Linear(dim1, mean_var_hidden * 2, bias=False)
         # Decoders
         # Similarly, only apply token temporal upsampling if seq_len_reduce is different from seq_len_new
         self.t_qz_upsample = None
@@ -155,23 +122,25 @@ class VMLA_Block(torch.nn.Module):
         self.qz_upsample = None
         self.kz_upsample = None
         self.vz_upsample = None
-        if self.reduce:
-            self.qz_upsample = torch.nn.Linear(mean_var_hidden, dim2, bias=False)
-            self.kz_upsample = torch.nn.Linear(mean_var_hidden, dim2, bias=False)
-            self.vz_upsample = torch.nn.Linear(mean_var_hidden, dim2, bias=False)
         # Projections
-        self.q_proj = torch.nn.Linear(dim3 if dim1 == dim3 and not force_reduce else dim2, self.heads * self.head_dim_content, bias=False)
-        self.k_proj = torch.nn.Linear(dim3 if dim1 == dim3 and not force_reduce else dim2, self.heads * self.head_dim_content, bias=False)
-        self.v_proj = torch.nn.Linear(dim3 if dim1 == dim3 and not force_reduce else dim2, dim3, bias=False)
+        self.q_proj = torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden,
+                                      (self.heads * self.head_dim_content) if self.reduce else (self.heads * self.head_dim),
+                                      bias=False
+        )
+        self.k_proj = torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden,
+                                      (self.heads * self.head_dim_content) if self.reduce else (self.heads * self.head_dim),
+                                      bias=False
+        )
+        self.v_proj = torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden, dim2, bias=False)
         # Decoupled RoPE Projections as per Multi-Head Latent Attention Paper
-        self.qr_proj_0 = None
-        if not self.reduce and not self.t_reduce:
-            # Decoupled RoPE projections for Q still needs to mimic the cache mechanism even if no dimension reduction is applied
-            self.qr_proj_0 = torch.nn.Linear(dim1, dim3, bias=False)
-        self.qr_proj = torch.nn.Linear(dim3 if dim1 == dim3 and not force_reduce else mean_var_hidden, self.head_dim_rope * self.heads, bias=False)
-        self.kr_proj = torch.nn.Linear(dim1, self.head_dim_rope * self.heads, bias=False)
+        self.qr_proj = None
+        self.kr_proj = None
+        if self.reduce:
+            self.qr_proj = torch.nn.Linear(mean_var_hidden, self.head_dim_rope * self.heads, bias=False)
+            self.kr_proj = torch.nn.Linear(dim1, self.head_dim_rope * self.heads, bias=False)
         self.linear_mask = torch.nn.Sequential(
             torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=False),
+            torch.nn.GELU(approximate='none'),
             torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=False)
         )
         self.input_t_proj = None
@@ -180,21 +149,21 @@ class VMLA_Block(torch.nn.Module):
         # This isn't optimal but closer to how residual connections are supposed to work.
         if seq_len_new != seq_length:
             self.input_t_proj = torch.nn.Linear(seq_length, seq_len_new, bias=False)
-        if dim1 != dim3:
-            self.input_proj = torch.nn.Linear(dim1, dim3, bias=False)
+        if dim1 != dim2:
+            self.input_proj = torch.nn.Linear(dim1, dim2, bias=False)
         # Attention
-        self.rope_q = RoPE(seq_len_new, self.head_dim_rope, learned=True)
-        self.rope_k = RoPE(seq_len_new, self.head_dim_rope, learned=True)
-        self.out_proj = torch.nn.Linear(dim3, dim3, bias=False)
+        self.rope_q = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
+        self.rope_k = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
+        self.out_proj = torch.nn.Linear(dim2, dim2, bias=False)
         self.dropout = torch.nn.Dropout(dropout)
-        self.ln_2 = norm_layer(dim3, bias=False)
+        self.ln_2 = norm_layer(dim2, bias=False)
         self.mlp = None
         if use_mlp:
             self.mlp = torch.nn.Sequential(
-                torch.nn.Linear(dim3, mlp_dim, bias=False),
+                torch.nn.Linear(dim2, mlp_dim, bias=False),
                 torch.nn.GELU(approximate='none'),
                 torch.nn.Dropout(dropout, inplace=False),
-                torch.nn.Linear(mlp_dim, dim3, bias=False),
+                torch.nn.Linear(mlp_dim, dim2, bias=False),
             )
 
     def forward(self, input_q, input_kv=None, state_manager=None, mask=False):
@@ -208,28 +177,29 @@ class VMLA_Block(torch.nn.Module):
         qz = xq
         kz = xkv
         vz = xkv
-        qr = input_q
-        kr = input_kv
+        qr = xq
+        kr = xkv
         if self.t_reduce and self.reduce:
             xq = xq.permute(0, 2, 1)
-            mean_zq = self.t_mean_zq(xq)
-            var_zq = self.t_var_zq(xq)
-            mean_zq = mean_zq.permute(0, 2, 1)
-            var_zq = var_zq.permute(0, 2, 1)
-            mean_zkv = self.t_mean_zkv(xkv.permute(0, 2, 1))
-            var_zkv = self.t_var_zkv(xkv.permute(0, 2, 1))
-            mean_zkv = mean_zkv.permute(0, 2, 1)
-            var_zkv = var_zkv.permute(0, 2, 1)
-            mean_zq = self.mean_zq(mean_zq)
-            var_zq = self.var_zq(var_zq)
-            mean_zkv = self.mean_zkv(mean_zkv)
-            var_zkv = self.var_zkv(var_zkv)
+            xkv = xkv.permute(0, 2, 1)
+            xq = self.t_encoder_q(xq)
+            xkv = self.t_encoder_kv(xkv)
+            xq = xq.permute(0, 2, 1)
+            xkv = xkv.permute(0, 2, 1)
+            mean_var_q = self.encoder_q(xq)
+            mean_var_kv = self.encoder_kv(xkv)
+            mean_zq, var_zq = mean_var_q.chunk(2, dim=-1)
+            mean_zkv, var_zkv = mean_var_kv.chunk(2, dim=-1)
             # Get residual states from state manager
             if state_manager is not None:
                 mean_zq, var_zq, mean_zkv, var_zkv = state_manager.get_mean_var_sums(mean_zq, var_zq, mean_zkv, var_zkv)
             # Compute samples
-            zq = mean_zq + ((self.e2de_ratio * torch.randn_like(var_zq)) + ((1 - self.e2de_ratio) * self.dirty_epsilon_zq)) * torch.exp(0.5 * var_zq)
-            zkv = mean_zkv + ((self.e2de_ratio * torch.randn_like(var_zkv)) + ((1 - self.e2de_ratio) * self.dirty_epsilon_zkv)) * torch.exp(0.5 * var_zkv)
+            if self.training:
+                zq = mean_zq + torch.randn_like(var_zq) * torch.exp(0.5 * var_zq)
+                zkv = mean_zkv + torch.randn_like(var_zkv) * torch.exp(0.5 * var_zkv)
+            else:
+                zq = mean_zq
+                zkv = mean_zkv
             qr = zq
             qz = zq.permute(0, 2, 1)
             qz = self.t_qz_upsample(qz)
@@ -245,29 +215,29 @@ class VMLA_Block(torch.nn.Module):
             kr = kr.permute(0, 2, 1)
             kr = self.t_kr_proj(kr)
             kr = kr.permute(0, 2, 1)
-            qz = self.qz_upsample(qz)
-            kz = self.kz_upsample(kz)
-            vz = self.vz_upsample(vz)
         qz = self.q_proj(qz)
         kz = self.k_proj(kz)
         vz = self.v_proj(vz)
-        if self.qr_proj_0 is not None:
-            qr = self.qr_proj_0(qr)
-        qr = self.qr_proj(qr)
-        kr = self.kr_proj(kr)
         mask_mat = self.linear_mask(qz @ kz.permute(0, 2, 1)) if mask else None
         mask_mat = mask_mat.unsqueeze(1)
         batch_size = qz.shape[0]
         seq_len_q = qz.shape[1]
         seq_len_kv = kz.shape[1]
-
-        q = qz.view(batch_size, seq_len_q, self.heads, self.head_dim_content).transpose(1, 2)
-        k = kz.view(batch_size, seq_len_kv, self.heads, self.head_dim_content).transpose(1, 2)
+        q = qz.view(batch_size, seq_len_q, self.heads, self.head_dim_content if self.reduce else self.head_dim).transpose(1, 2)
+        k = kz.view(batch_size, seq_len_kv, self.heads, self.head_dim_content if self.reduce else self.head_dim).transpose(1, 2)
         v = vz.view(batch_size, seq_len_kv, self.heads, self.head_dim).transpose(1, 2)
-        qr = qr.view(batch_size, seq_len_q, self.heads, self.head_dim_rope).transpose(1, 2)
-        kr = kr.view(batch_size, seq_len_kv, self.heads, self.head_dim_rope).transpose(1, 2)
-        q = torch.cat((q, self.rope_q(qr)), dim=-1)
-        k = torch.cat((k, self.rope_k(kr)), dim=-1)
+        # Decoupled RoPE if we are reducing dimensions
+        if self.reduce:
+            qr = self.qr_proj(qr)
+            kr = self.kr_proj(kr)
+            qr = qr.view(batch_size, seq_len_q, self.heads, self.head_dim_rope).transpose(1, 2)
+            kr = kr.view(batch_size, seq_len_kv, self.heads, self.head_dim_rope).transpose(1, 2)
+            q = torch.cat((q, self.rope_q(qr)), dim=-1)
+            k = torch.cat((k, self.rope_k(kr)), dim=-1)
+        # Standard RoPE if not reducing
+        else:
+            q = self.rope_q(q)
+            k = self.rope_k(k)
         # Attention
         x = F.scaled_dot_product_attention(
             q, k, v,
@@ -296,7 +266,6 @@ class Block(torch.nn.Module):
         self,
         heads: int,
         dim1: int,
-        dim2: int,
         dim_step: int,
         mean_var_hidden: int,
         seq_length: int,
@@ -304,6 +273,7 @@ class Block(torch.nn.Module):
         is_first_block: bool,
         seq_len_reduce:int,
         force_reduce: bool=False,
+        training: bool=True,
         out_features_override: int = None,
     ):
         super().__init__()
@@ -311,40 +281,40 @@ class Block(torch.nn.Module):
         self.encoder = VMLA_Block(
             heads=heads,
             dim1=dim1,
-            dim2=dim2,
-            dim3=dim1,
+            dim2=dim1,
             mean_var_hidden=mean_var_hidden,
             seq_length=seq_length,
             seq_len_reduce=seq_len_reduce,
             seq_len_new=seq_length,
             mlp_dim = dim1 * 2,
             force_reduce=force_reduce,
+            training=training,
             use_mlp=True
         )
         self.decoder = VMLA_Block(
             heads=heads,
             dim1=dim1,
-            dim2=dim2,
-            dim3=dim1,
+            dim2=dim1,
             mean_var_hidden=mean_var_hidden,
             seq_length=seq_length,
             seq_len_reduce=seq_len_reduce,
             seq_len_new=seq_length,
             mlp_dim=dim1 * 2,
             force_reduce=force_reduce,
+            training=training,
             use_mlp=True
         )
         self.cross = VMLA_Block(
             heads=heads,
             dim1=dim1,
-            dim2=dim2,
-            dim3=(dim1 + (dim_step * 3)) if out_features_override is None else out_features_override, # Need to adjust output features if this is the last block in the encoder/decoder stack
+            dim2=(dim1 + (dim_step * 3)) if out_features_override is None else out_features_override, # Need to adjust output features if this is the last block in the encoder/decoder stack
             mean_var_hidden=mean_var_hidden,
             seq_length=seq_length,
             seq_len_reduce=seq_len_reduce,
             seq_len_new=seq_length + (seq_len_step * 3),
             mlp_dim=(dim1 + (dim_step * 3)) * 2,
             force_reduce=force_reduce,
+            training=training,
             use_mlp=True
         )
 
@@ -376,7 +346,6 @@ class EncoderDecoder_8(torch.nn.Module):
         self,
         heads: int=12,
         dim1: int=768,
-        dim2: int=256,
         dim_step: int=48,
         mean_var_hidden: int=192,
         seq_length: int=256,
@@ -384,6 +353,7 @@ class EncoderDecoder_8(torch.nn.Module):
         seq_len_reduce:int=128,
         out_features_override: int = None, #Not used here, but useful for last block in encoder/decoder stacks
         force_reduce: bool=False,
+        training: bool=True,
         norm_layer: Callable[..., torch.nn.Module] = partial(torch.nn.LayerNorm, eps=1e-6)
     ):
         super().__init__()
@@ -395,7 +365,6 @@ class EncoderDecoder_8(torch.nn.Module):
                 Block(
                     heads=heads,
                     dim1=dim1,
-                    dim2=dim2,
                     dim_step=-dim_step,
                     mean_var_hidden=mean_var_hidden,
                     is_first_block=(i == 0),
@@ -403,7 +372,8 @@ class EncoderDecoder_8(torch.nn.Module):
                     seq_len_step=-seq_len_step,
                     seq_len_reduce=seq_len_reduce,
                     out_features_override=None, # Not used here, but useful for last block in encoder/decoder stacks
-                    force_reduce=force_reduce
+                    force_reduce=force_reduce,
+                    training=training
                 )
             )
             dim1 -= (dim_step * 3)
@@ -411,7 +381,6 @@ class EncoderDecoder_8(torch.nn.Module):
         self.block_bottle_neck_1 = Block(
             heads=heads,
             dim1=dim1,
-            dim2=dim2,
             dim_step=0,
             mean_var_hidden=mean_var_hidden,
             is_first_block=False,
@@ -419,13 +388,13 @@ class EncoderDecoder_8(torch.nn.Module):
             seq_len_step=0,
             seq_len_reduce=seq_len_reduce,
             out_features_override=None,
-            force_reduce=force_reduce
+            force_reduce=force_reduce,
+            training=training
         )
         # Decoder-Blocks
         self.block_bottle_neck_2 = Block(
             heads=heads,
             dim1=dim1,
-            dim2=dim2,
             dim_step=0,
             mean_var_hidden=mean_var_hidden,
             is_first_block=False,
@@ -433,7 +402,8 @@ class EncoderDecoder_8(torch.nn.Module):
             seq_len_step=0,
             seq_len_reduce=seq_len_reduce,
             out_features_override=None,
-            force_reduce=force_reduce
+            force_reduce=force_reduce,
+            training=training
         )
         self.decoder_blocks = torch.nn.ModuleList()
         for i in range(3):
@@ -441,7 +411,6 @@ class EncoderDecoder_8(torch.nn.Module):
                 Block(
                     heads=heads,
                     dim1=dim1,
-                    dim2=dim2,
                     dim_step=dim_step,
                     mean_var_hidden=mean_var_hidden,
                     is_first_block=False,
@@ -449,11 +418,13 @@ class EncoderDecoder_8(torch.nn.Module):
                     seq_len_step=seq_len_step,
                     seq_len_reduce=seq_len_reduce,
                     out_features_override=out_features_override if i == 2 else None,
-                    force_reduce=force_reduce
+                    force_reduce=force_reduce,
+                    training=training
                 )
             )
             dim1 += (dim_step * 3)
             seq_length += (seq_len_step * 3)
+        self.ln_final = norm_layer(dim1, bias=False)
 
     def forward(self, x, embeddings=None):
         esm = ResidualStateManager() if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
@@ -480,6 +451,7 @@ class EncoderDecoder_8(torch.nn.Module):
                 x += skip_2
             elif i == 1:
                 x += skip_1
+        x = self.ln_final(x)
         return x
 
 # 8 Total Encoder-Decoder Blocks, 24 attention layers, For Classification, Defaults are for 224x224x3 images.
@@ -489,7 +461,6 @@ class Encoder_8(torch.nn.Module):
         self,
         heads: int=12,
         dim1: int=672,
-        dim2: int=224,
         dim_step: int=24,
         mean_var_hidden: int=192,
         seq_length: int=224,
@@ -497,6 +468,7 @@ class Encoder_8(torch.nn.Module):
         seq_len_reduce:int=96,
         out_features_override: int = None,
         force_reduce: bool=False,
+        training: bool=True,
         norm_layer: Callable[..., torch.nn.Module] = partial(torch.nn.LayerNorm, eps=1e-6)
     ):
         super().__init__()
@@ -508,7 +480,6 @@ class Encoder_8(torch.nn.Module):
                 Block(
                     heads=heads,
                     dim1=dim1,
-                    dim2=dim2,
                     dim_step=-dim_step if step else 0,
                     mean_var_hidden=mean_var_hidden,
                     is_first_block=(i == 0),
@@ -516,16 +487,19 @@ class Encoder_8(torch.nn.Module):
                     seq_len_step=-seq_len_step if step else 0,
                     seq_len_reduce=seq_len_reduce,
                     out_features_override=None,
-                    force_reduce=force_reduce
+                    force_reduce=force_reduce,
+                    training=training
                 )
             )
             dim1 -= (dim_step * 3) if step else 0
             seq_length -= (seq_len_step * 3) if step else 0
+        self.ln_final = norm_layer(dim1, bias=False)
     
     def forward(self, x, embeddings=None):
         esm = ResidualStateManager() if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
         dsm = ResidualStateManager() if self.force_reduce else None # Same for the decoder
         csm = ResidualStateManager() # the cross residual state manager will always be used
-        for i, block in enumerate(self.encoder_blocks):
+        for _, block in enumerate(self.encoder_blocks):
             x = block(x, esm=esm, dsm=dsm, csm=csm, mask=True, embeddings=embeddings if embeddings is not None else None)
+        x = self.ln_final(x)
         return x
