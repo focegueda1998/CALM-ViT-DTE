@@ -2,7 +2,7 @@
 # Would have used 24.04 but there is some minor issues with the nvidia/cuda image.
 # You may choose to use a different base image at your own discretion; just be aware
 # this Dockerfile is built specifically for: nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04.
-FROM nvidia/cuda:12.9.1-base-ubuntu22.04
+FROM nvidia/cuda:12.9.1-base-ubuntu22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 # Copy Hadoop and Spark tarballs to /usr/local/
@@ -16,12 +16,15 @@ COPY spark-4.0.1-bin-hadoop3-connect.tgz /usr/local/
 COPY kafka_2.13-4.1.0.tgz /usr/local/
 
 # Install necessary packages and set up the environment
+FROM base AS build_1
 RUN apt-get update && \
     apt-get install -y vim curl ssh openjdk-17-jdk default-jre sudo wget && \
     apt-get clean && \
     ssh-keygen -t rsa -N "" -f /root/.ssh/id_rsa && \
-    cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys && \
-    mkdir -p /usr/local/miniconda3 && \
+    cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+
+FROM build_1 AS build_2
+RUN mkdir -p /usr/local/miniconda3 && \
     wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /usr/local/miniconda3/miniconda.sh && \
     bash /usr/local/miniconda3/miniconda.sh -b -u -p /usr/local/miniconda3 && \
     rm /usr/local/miniconda3/miniconda.sh && \
@@ -35,20 +38,31 @@ RUN apt-get update && \
     /usr/local/miniconda3/bin/conda config --set report_errors false && \
     /usr/local/miniconda3/bin/conda update -n base conda -y && \
     # Install packages after ToS acceptance
-    /usr/local/miniconda3/bin/conda install python=3.11 -y &&\
-    . /usr/local/miniconda3/bin/activate &&\
-    echo \"y\" | pip install torch &&\
-    echo \"y\" | pip install torchvision &&\
-    echo \"y\" | pip install torchaudio &&\
-    echo \"y\" | pip install torchsummary &&\
-    echo \"y\" | pip install pyspark &&\
-    mkdir -p /usr/lib/spark/scripts/gpu/ && \
+    /usr/local/miniconda3/bin/conda install python=3.11 -y
+
+FROM build_2 AS build_3
+RUN echo "y" | /usr/local/miniconda3/bin/pip install torch
+
+FROM build_3 AS build_3-1
+RUN echo "y" | /usr/local/miniconda3/bin/pip install torchvision
+
+FROM build_3-1 AS build_3-2
+RUN echo "y" | /usr/local/miniconda3/bin/pip install torchaudio
+
+FROM build_3-2 AS build_3-3
+RUN echo "y" | /usr/local/miniconda3/bin/pip install torchsummary torcheval
+
+FROM build_3-3 AS build_3-4
+RUN echo "y" | /usr/local/miniconda3/bin/pip install pyspark grpcio grpcio-status
+
+FROM build_3-4 AS build_3-5
+RUN mkdir -p /usr/lib/spark/scripts/gpu/ && \
     cd /usr/lib/spark/scripts/gpu/ && \
     wget https://raw.githubusercontent.com/apache/spark/master/examples/src/main/scripts/getGpusResources.sh && \
-    chmod a+rwx -R /usr/lib/spark/scripts/gpu/ && \
-    # Install Hadoop and Spark
-    # If you want to use a different version, replace the tarballs and the paths below.
-    tar -zxvf /usr/local/hadoop-3.4.1.tar.gz -C /usr/local/ && \
+    chmod a+rwx -R /usr/lib/spark/scripts/gpu/
+
+FROM build_3-5 AS build_4
+RUN tar -zxvf /usr/local/hadoop-3.4.1.tar.gz -C /usr/local/ && \
     tar -zxvf /usr/local/spark-4.0.1-bin-hadoop3-connect.tgz -C /usr/local/ && \
     tar -zxvf /usr/local/kafka_2.13-4.1.0.tgz -C /usr/local/ && \
     mv /usr/local/spark-4.0.1-bin-hadoop3-connect /usr/local/spark && \
@@ -98,6 +112,7 @@ RUN apt-get update && \
 # Copy Hadoop configuration files
 # You may replace the contents of each file with your desired configuration.
 # Make sure to place these files according to your Hadoop installation.
+FROM build_4 AS final
 COPY core-site.xml /usr/local/hadoop-3.4.1/etc/hadoop/
 COPY hdfs-site.xml /usr/local/hadoop-3.4.1/etc/hadoop/
 COPY mapred-site.xml /usr/local/hadoop-3.4.1/etc/hadoop/
