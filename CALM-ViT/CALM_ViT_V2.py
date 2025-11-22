@@ -1,5 +1,5 @@
 import torch
-import torchvision.transforms.v2
+import torchvision.transforms as transforms
 import Vi_Tools_CNN_less_V2 as vt
 import torchvision
 import torch.optim as optim
@@ -28,9 +28,8 @@ class ViT(torch.nn.Module):
         self.seq_length = seq_length
         # We use two sets of positional embeddings, one for the encoder (row tokens) and one
         # for the decoder (columns).
-        # self.pos_embeddings = [torch.nn.Parameter(torch.zeros(1, seq_length, in_features)).to(device),
-        #                        torch.nn.Parameter(torch.zeros(1, seq_length, in_features)).to(device)]
-        self.pos_embeddings = None
+        self.pos_embeddings = [torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device), 
+                              torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device)]
         if type == 8 and generate:
             self.autoencoder = vt.EncoderDecoder_8(
                 heads=heads,
@@ -62,7 +61,7 @@ class ViT(torch.nn.Module):
                                     out_features if not generate else in_features,
                                     bias=generate).to(device)
     def forward(self, q):
-        x = self.autoencoder(q, self.pos_embeddings)
+        x = self.autoencoder(q, [emb.clone() for emb in self.pos_embeddings])
         if not self.generate:
             # Average pool the sequence dimension
             x = x.permute(0, 2, 1)
@@ -70,6 +69,7 @@ class ViT(torch.nn.Module):
             x = self.head(x)
         else:
             x = self.head(x)
+            x = torch.clamp(x, min=0, max=1)
         return x
 
 class ImageDataset(Dataset):
@@ -132,35 +132,33 @@ def initialize_vit(device, weights: str="DEFAULT"):
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # model = initialize_vit(device, type="l")
     model = ViT(device, type=8, heads=12, seq_length=224, in_features=672,
-                 dim_step=48, mean_var_hidden=160,
-                 seq_len_step=16, seq_len_reduce=96, out_features=1000,
-                 force_reduce=False, generate=False)
+                 dim_step=48, mean_var_hidden=224,
+                 seq_len_step=16, seq_len_reduce=96, out_features=672,
+                 force_reduce=False, generate=True)
     optimizer = optim.Adam(model.parameters(), lr=1e-5)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
-    # criterion_mse = torch.nn.MSELoss()
-    # criterion_KL = torch.nn.KLDivLoss(reduction='batchmean')
+    criterion_mse = torch.nn.MSELoss()
+    criterion_KL = torch.nn.KLDivLoss(reduction='batchmean')
     print(model)
 
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-    transform = torchvision.transforms.v2.Compose([
-        torchvision.transforms.v2.Resize((240, 240)),
-        torchvision.transforms.v2.RandomCrop((224, 224)),
-        torchvision.transforms.v2.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
-        torchvision.transforms.v2.RandomAffine(
+    transform = transforms.Compose([
+        transforms.Resize((240, 240)),
+        transforms.RandomCrop((224, 224)),
+        transforms.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
+        transforms.RandomAffine(
             degrees=(-1, 1),                 
             translate=(0.1, 0.1),           
             scale=(0.9, 1.1),              
             shear=(0, 2),
             interpolation=InterpolationMode.BILINEAR
             ),
-        torchvision.transforms.v2.RandomHorizontalFlip(),
-        torchvision.transforms.v2.ToImage(),
-        torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
-        torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
-        torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     split = "train"
@@ -170,7 +168,7 @@ if __name__ == '__main__':
         split=split,
         transform=transform
     )
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=512, shuffle=True)
     if split == "train":
         for epoch in range(5):
             model.train()
@@ -179,22 +177,29 @@ if __name__ == '__main__':
                 y = y.to(device)
                 optimizer.zero_grad()
                 y_hat = model(x)
-                loss_1 = criterion(y_hat.squeeze(), y) # The labels need to be floating point
-                # loss_2 = criterion_mse(img, x)
-                # img_flat = img.reshape(-1, 256 * 256 * 3)
-                # x_flat = x.reshape(-1, 256 * 256 * 3)
-                # img_log = torch.nn.functional.log_softmax(img_flat, dim=1)
-                # x_soft = torch.nn.functional.softmax(x_flat, dim=1)
-                # loss_3 = criterion_KL(img_log, x_soft)
-                loss = loss_1 # + loss_2 + loss_3
+                img = y_hat.reshape(-1, 224, 224, 3)
+                img = img.permute(0, 3, 1, 2)
+                # loss_1 = criterion(y_hat.squeeze(), y) # The labels need to be floating point
+                loss_2 = criterion_mse(img, x)
+                img_flat = img.reshape(-1, 224 * 224 * 3)
+                x_flat = x.reshape(-1, 224 * 224 * 3)
+                img_log = torch.nn.functional.log_softmax(img_flat, dim=1)
+                x_soft = torch.nn.functional.softmax(x_flat, dim=1)
+                loss_3 = criterion_KL(img_log, x_soft)
+                # loss = loss_1 # + loss_2 + loss_3
+                loss = loss_2 + loss_3
                 loss.backward()
                 optimizer.step()
-                _, predicted = torch.max(y_hat.data, 1)
-                correct = (predicted == y).sum().item()
-                accuracy = correct / y.size(0)
-                print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Accuracy: {accuracy}")
-                # if i % 10 == 0:
-                #     save_samples(img)
+                # _, predicted = torch.max(y_hat.data, 1)
+                # correct = (predicted == y).sum().item()
+                # accuracy = correct / y.size(0)
+                # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Accuracy: {accuracy}")
+                print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+                if i % 10 == 0:
+                    save_samples(img)
+                # for name, param in model.named_parameters():
+                #     if param.grad is None:
+                #         print(f"- {name}")
             scheduler.step()
     else:
         with torch.no_grad():

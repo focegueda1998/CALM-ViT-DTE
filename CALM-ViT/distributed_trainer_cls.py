@@ -16,6 +16,7 @@ from pyspark.ml.torch.distributor import TorchDistributor
 from torchvision.datasets import ImageNet
 from subprocess import call
 import torchvision
+import torchvision.transforms as transforms
 from torchvision.transforms.functional import InterpolationMode
 import sys
 
@@ -77,34 +78,17 @@ def train(initializer, optimizer, scheduler,
             # Compute classification and reconstruction loss on the batch
             y_hat = model(x)
             loss = criterion(y_hat.squeeze(), y)
-            # loss += criterion_mse(img, x)
-            # img_flat = img.reshape(-1, 256 * 256 * 3)
-            # x_flat = x.reshape(-1, 256 * 256 * 3)
-            # loss += criterion_kl(torch.log_softmax(img_flat, dim=1), torch.softmax(x_flat, dim=1))
             loss.backward()
-            # with torch.no_grad():
-            #     # attention_maps = model.module.get_attention_maps(x)
-            #     img_detached = img.detach()
-            # # Compute adversarial loss on the batch
-            # fake_y_hat, img = model(img_detached)
-            # fake_y = torch.ones_like(y).float()
-            # sa_loss = criterion_binary(fake_y_hat.squeeze(), fake_y)
-            # sa_loss += criterion_mse(img, img_detached)
-            # img_flat = img.reshape(-1, 256 * 256 * 3)
-            # img_detached_flat = img_detached.reshape(-1, 256 * 256 * 3)
-            # sa_loss += criterion_kl(torch.log_softmax(img_flat, dim=1), torch.softmax(img_detached_flat, dim=1))
-            # sa_loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
             _, predicted = torch.max(y_hat.data, 1)
             correct = (predicted == y).sum().item()
             accuracy = correct / y.size(0)
-            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
-            if global_rank == 0 and local_rank == 0 and (i + 1) % 250 == 0:
-                torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
-                # rvh.save_samples(img)
-                print("Model saved to models/model_b.pth")
-                # save_samples(batch, attention_maps, y_pred, y_actual)
+            if (i % 10 == 0):
+                print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
+        if global_rank == 0 and local_rank == 0:
+            torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
+            print("Model saved to models/model_cls.pth")
         if scheduler is not None:
             scheduler.step()
             if global_rank == 0 and local_rank == 0:
@@ -117,9 +101,8 @@ if __name__ == "__main__":
     start = time()
     call(['mkdir', '-p', f'{parent_dir}/Codebase/models'])
     call(['mkdir', '-p', f'{parent_dir}/Codebase/samples'])
-    sc = SparkContext.getOrCreate()
-    spark = SparkSession.builder.getOrCreate()
-    distributor = TorchDistributor(num_processes=12, local_mode=False, use_gpu=True)
+    spark = SparkSession.builder.appName("CALM_ViT_Training").getOrCreate()
+    distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
                  dim_step=48, mean_var_hidden=160,
@@ -127,26 +110,30 @@ if __name__ == "__main__":
                  force_reduce=False, generate=False)
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-    transform = torchvision.transforms.v2.Compose([
-        torchvision.transforms.v2.Resize((240, 240)),
-        torchvision.transforms.v2.RandomCrop((224, 224)),
-        torchvision.transforms.v2.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
-        torchvision.transforms.v2.RandomAffine(
+    transform = transforms.Compose([
+        transforms.Resize((240, 240)),
+        transforms.RandomCrop((224, 224)),
+        transforms.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
+        transforms.RandomAffine(
             degrees=(-1, 1),                 
             translate=(0.1, 0.1),           
             scale=(0.9, 1.1),              
             shear=(0, 2),
             interpolation=InterpolationMode.BILINEAR
             ),
-        torchvision.transforms.v2.RandomHorizontalFlip(),
-        torchvision.transforms.v2.ToImage(),
-        torchvision.transforms.v2.ToDtype(dtype=torch.float32, scale=True),
-        torchvision.transforms.v2.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
-        torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.RandomVerticalFlip(),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(degrees=5),
+        transforms.RandomGrayscale(),
+        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    opt = optim.AdamW(model.parameters(), lr=3.1e-5, weight_decay=0.05)
+
+    opt = optim.AdamW(model.parameters(), lr=3.1e-5, weight_decay=0.02)
     dataset = ImageNet(
-        root=parent_dir + "/imagenet/",
+        root="/dataset/imagenet/",
         split="train",
         transform=transform
     )
@@ -157,12 +144,11 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs=5,
-        batch_size=45
+        epochs=400,
+        batch_size=640
     )
-    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_b.pth")
-    print(f"Model saved to {parent_dir}/Codebase/models/model_b.pth")
-    # sleep(30)
-    # save_samples(batch, attention_maps, y_pred, y_actual)
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
+    print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")
     print(f"Time taken: {time() - start}")
-    sc.stop()
+    sleep(30)
+    spark.stop()

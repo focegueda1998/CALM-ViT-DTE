@@ -12,7 +12,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Ensure that the Spark version is compatible with the RAPIDS plugin version if you plan on
 # using a different version Spark.
 COPY hadoop-3.4.1.tar.gz /usr/local/
-COPY spark-4.0.1-bin-hadoop3-connect.tgz /usr/local/
+COPY spark-4.0.1-bin-hadoop3.tgz /usr/local/
 COPY kafka_2.13-4.1.0.tgz /usr/local/
 
 # Install necessary packages and set up the environment
@@ -48,12 +48,12 @@ RUN mkdir -p /usr/lib/spark/scripts/gpu/ && \
 
 FROM build_3 AS build_4
 RUN tar -zxvf /usr/local/hadoop-3.4.1.tar.gz -C /usr/local/ && \
-    tar -zxvf /usr/local/spark-4.0.1-bin-hadoop3-connect.tgz -C /usr/local/ && \
+    tar -zxvf /usr/local/spark-4.0.1-bin-hadoop3.tgz -C /usr/local/ && \
     tar -zxvf /usr/local/kafka_2.13-4.1.0.tgz -C /usr/local/ && \
-    mv /usr/local/spark-4.0.1-bin-hadoop3-connect /usr/local/spark && \
+    mv /usr/local/spark-4.0.1-bin-hadoop3 /usr/local/spark && \
     mv /usr/local/kafka_2.13-4.1.0 /usr/local/kafka && \
     rm -rf /usr/local/hadoop-3.4.1.tar.gz && \
-    rm -rf /usr/local/spark-4.0.1-bin-hadoop3-connect.tgz && \
+    rm -rf /usr/local/spark-4.0.1-bin-hadoop3.tgz && \
     rm -rf /usr/local/kafka_2.13-4.1.0.tgz && \
     rm -rf /usr/local/hadoop-3.4.1/etc/hadoop/core-site.xml && \
     rm -rf /usr/local/hadoop-3.4.1/etc/hadoop/hdfs-site.xml && \

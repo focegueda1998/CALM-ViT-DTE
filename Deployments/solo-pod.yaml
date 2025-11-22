@@ -5,9 +5,18 @@ metadata:
   labels:
     k8s-app: pytorch
 spec:
-  nodeSelector:
-    topology.kubernetes.io/region: us-west
-    topology.kubernetes.io/zone: fullerton
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: nvidia.com/gpu.product
+            operator: In
+            values:
+            - NVIDIA-A100-SXM4-80GB
+  # nodeSelector:
+  #   topology.kubernetes.io/region: us-west
+  #   topology.kubernetes.io/zone: fullerton
   volumes:
   - name: config-volume
     persistentVolumeClaim:
@@ -19,11 +28,11 @@ spec:
       limits:
         memory: 16Gi
         cpu: 8000m
-        nvidia.com/gpu: 2
+        nvidia.com/a100: 2
       requests:
         memory: 16Gi
         cpu: 8000m
-        nvidia.com/gpu: 2
+        nvidia.com/a100: 2
     volumeMounts:
     - name: config-volume
       mountPath: /config
@@ -39,15 +48,13 @@ spec:
        echo \"export KAGGLE_KEY=\" >> /root/.bashrc; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        echo 'SPARK_WORKER_PORT=7078' >> /root/.bashrc; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
-       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=1 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
+       echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=2 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
        echo \"SPARK_CLASSPATH=$(find /usr/local/spark/jars -name '*.jar' | tr '\n' ':')\" >> /root/.bashrc; \
        echo \"\" >> /root/.bashrc; \
        source /usr/local/miniconda3/bin/activate; \
        conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main; \ 
        conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r; \
-       conda install -c conda-forge transformers -y; \
-       conda install -c conda-forge diffusers -y; \
        conda install seaborn -y; \
        conda install matplotlib -y; \
        conda install scikit-learn -y; \
@@ -55,7 +62,7 @@ spec:
        conda install -c conda-forge kaggle -y; \
        conda install -c conda-forge pillow -y; \
        conda install -c conda-forge libxcb -y; \
-       echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark pyspark-connect pyspark[connect] scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib]; \
+       echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib]; \
        mkdir -p /config/Codebase; \
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \

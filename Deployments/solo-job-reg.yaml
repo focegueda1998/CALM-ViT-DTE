@@ -1,29 +1,38 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: master
+  name: solo-reg
   labels:
     k8s-app: spark-torch
 spec:
   template:
     spec:
       restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                - NVIDIA-A100-SXM4-80GB
       volumes:
       - name: config-volume
         persistentVolumeClaim:
           claimName: datasets-pvc
       containers:
-      - name: master
-        image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
+      - name: solo-reg
+        image: "gitlab-registry.nrp-nautilus.io/focegueda/calm-vit-dte/sparktorchkafka:latest"
         resources:
           limits:
-            memory: 72Gi
-            cpu: 24000m
-            nvidia.com/gpu: 4
+            memory: 64Gi
+            cpu: 28000m
+            nvidia.com/a100: 4
           requests:
-            memory: 72Gi
-            cpu: 24000m
-            nvidia.com/gpu: 4
+            memory: 64Gi
+            cpu: 28000m
+            nvidia.com/a100: 4
         ports:
         - containerPort: 8088
           hostPort: 8088
@@ -76,13 +85,6 @@ spec:
         command: ["bash", "-c"]
         args: [
           "
-          cat /config/spark-env.sh > /usr/local/spark/conf/spark-env.sh; \
-          cat /config/spark-defaults.conf > /usr/local/spark/conf/spark-defaults.conf; \
-          echo $(hostname -i)\t$(hostname) >> /config/ips_temp ;\
-          echo $(hostname) >> /config/workers_tmp; \
-          echo '0' > /config/state; \
-          echo $(bash /usr/local/kafka/bin/kafka-storage.sh random-uuid) > /config/uuid; \
-          apt-get install unzip -y; \
           apt-get install zip -y; \
           apt-get install libxcb-xinerama0 -y; \
           apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
@@ -94,6 +96,8 @@ spec:
           echo 'SPARK_WORKER_PORT=7078' >> /root/.bashrc; \
           echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=4 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
           echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=4 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
+          echo $(hostname) > /usr/local/spark/conf/workers; \
+          echo $(hostname -i)\t$(hostname) > /etc/hosts ;\
           source /usr/local/miniconda3/bin/activate; \
           conda install seaborn -y; \
           conda install matplotlib -y; \
@@ -102,7 +106,6 @@ spec:
           conda install -c conda-forge kaggle -y; \
           conda install -c conda-forge pillow -y; \
           conda install -c conda-forge libxcb -y; \
-          echo \"y\" | pip install torchsummary ; \
           mkdir -p /home/Codebase; \
           echo 'Reloading bashrc'; \
           . /root/.bashrc; \
@@ -114,45 +117,19 @@ spec:
           else \
             echo 'NVIDIA devices not found'; \
           fi; \
-          sleep 60; \
-          echo 'Fetching node IPs and updating /etc/hosts'; \
-          cat /config/ips_temp > /config/ips; \
-          cat /config/ips >> /etc/hosts; \
-          cat /config/workers_tmp > /usr/local/spark/conf/workers; \
-          echo 'Updated /etc/hosts'; \
-          sleep 15; \
           chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
           ./usr/local/spark/sbin/start-all.sh --host $(hostname) --port 7077; \
-          rm /config/ips_temp; \
-          rm /config/workers_tmp; \
+          mkdir -p dataset; \
+          cd dataset; \
+          mkdir -p imagenet; \
+          cd imagenet; \
+          cp /config/imagenet/ILSVRC2012_img_train.tar /dataset/imagenet; \
+          cp /config/imagenet/ILSVRC2012_img_val.tar /dataset/imagenet;\
+          cp /config/imagenet/ILSVRC2012_devkit_t12.tar.gz /dataset/imagenet; \
+          echo 'Dataset downloaded successfully.'; \
           echo 'Cluster Started'; \
-          sleep 30; \
+          sleep 15; \
           echo 'TRAINING'; \
-          bash /config/Codebase/train.sh; \
-          echo '1' >> /config/state; \
+          bash /config/Codebase/train-reg.sh; \
           "
         ]
-
-##?###########################################?##
-###? Use this snippet to start HDFS and YARN ?###
-##?###########################################?##
-      #  echo 'Starting HDFS and YARN'; \
-      #  hdfs namenode -format -force -nonInteractive; \
-      #  start-dfs.sh; \
-      #  start-yarn.sh; \
-      #  echo 'Setting Up Directories'; \
-      #  hadoop fs -mkdir /sparklog; \
-      #  hadoop fs -chmod 777 /sparklog; \
-      #  hadoop fs -mkdir /user; \
-      #  hadoop fs -chmod 777 /user; \
-      #  hadoop fs -put /home/AI_Human_Generated_Images /user; \
-      #  rm -rf /home/AI_Human_Generated_Images; \
-      #  echo 'Directories Set Up'; \
-
-##?###########################################?##
-###? Use this snippet to start model trainer ?###
-##?###########################################?##
-      #  sleep 30; \
-      #  echo 'TRAINING'; \
-      #  bash /config/Codebase/train.sh; \
-      #  echo 'TRAINING HAS ENDED'; \

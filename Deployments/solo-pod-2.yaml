@@ -46,13 +46,11 @@ spec:
        source /usr/local/miniconda3/bin/activate; \
        conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main; \ 
        conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r; \
-       conda install -c conda-forge transformers -y; \
-       conda install -c conda-forge diffusers -y; \
        conda install seaborn -y; \
        conda install matplotlib -y; \
        conda install scikit-learn -y; \
        conda install pyqt -y; \
-       echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark pyspark-connect pyspark[connect] scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib]; \
+       echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib]; \
        conda install -c conda-forge kaggle -y; \
        conda install -c conda-forge pillow -y; \
        conda install -c conda-forge libxcb -y; \
