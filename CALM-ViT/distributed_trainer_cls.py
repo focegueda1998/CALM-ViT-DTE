@@ -48,7 +48,7 @@ def train(initializer, optimizer, scheduler,
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=0)
     model = initializer
     model = model.to(device)
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
@@ -84,8 +84,7 @@ def train(initializer, optimizer, scheduler,
             _, predicted = torch.max(y_hat.data, 1)
             correct = (predicted == y).sum().item()
             accuracy = correct / y.size(0)
-            if (i % 10 == 0):
-                print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
+            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
         if global_rank == 0 and local_rank == 0:
             torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
             print("Model saved to models/model_cls.pth")
@@ -145,7 +144,7 @@ if __name__ == "__main__":
         use_gpu=True,
         dataset=dataset,
         epochs=400,
-        batch_size=640
+        batch_size=608
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
     print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")

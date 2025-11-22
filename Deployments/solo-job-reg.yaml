@@ -97,12 +97,12 @@ spec:
           echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=4 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /usr/local/spark/conf/spark-env.sh; \
           echo 'SPARK_WORKER_OPTS=\"-Dspark.worker.resource.gpu.amount=4 -Dspark.worker.resource.gpu.discoveryScript=/opt/sparkRapidsPlugin/getGpusResources.sh\"' >> /root/.bashrc; \
           echo $(hostname) > /usr/local/spark/conf/workers; \
-          echo $(hostname -i)\t$(hostname) > /etc/hosts ;\
+          echo $(hostname -i)\t$(hostname) >> /etc/hosts ;\
           source /usr/local/miniconda3/bin/activate; \
           conda install seaborn -y; \
           conda install matplotlib -y; \
           conda install scikit-learn -y; \
-          echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib]; \
+          echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib] matplotlib scikit-learn; \
           conda install -c conda-forge kaggle -y; \
           conda install -c conda-forge pillow -y; \
           conda install -c conda-forge libxcb -y; \
@@ -123,13 +123,13 @@ spec:
           cd dataset; \
           mkdir -p imagenet; \
           cd imagenet; \
+          echo 'Cluster Started'; \
+          sleep 15; \
+          echo 'TRAINING'; \
           cp /config/imagenet/ILSVRC2012_img_train.tar /dataset/imagenet; \
           cp /config/imagenet/ILSVRC2012_img_val.tar /dataset/imagenet;\
           cp /config/imagenet/ILSVRC2012_devkit_t12.tar.gz /dataset/imagenet; \
           echo 'Dataset downloaded successfully.'; \
-          echo 'Cluster Started'; \
-          sleep 15; \
-          echo 'TRAINING'; \
           bash /config/Codebase/train-reg.sh; \
           "
         ]

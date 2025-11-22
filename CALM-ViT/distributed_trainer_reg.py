@@ -48,7 +48,7 @@ def train(initializer, optimizer, scheduler,
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=0)
     model = initializer
     model = model.to(device)
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
@@ -92,8 +92,7 @@ def train(initializer, optimizer, scheduler,
             # accuracy = correct / y.size(0)
             # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Accuracy: {accuracy}")
             optimizer.step()
-            if (i % 10 == 0):
-                print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}")
+            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}")
         if global_rank == 0 and local_rank == 0:
             torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_reg.pth")
             rvh.save_samples(img)
@@ -112,6 +111,7 @@ if __name__ == "__main__":
     call(['mkdir', '-p', f'{parent_dir}/Codebase/models'])
     call(['mkdir', '-p', f'{parent_dir}/Codebase/samples'])
     spark = SparkSession.builder.appName("CALM_ViT_Training").getOrCreate()
+    rvh.save_samples(torch.zeros((1, 3, 224, 224)))
     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
