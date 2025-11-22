@@ -41,27 +41,12 @@ RUN mkdir -p /usr/local/miniconda3 && \
     /usr/local/miniconda3/bin/conda install python=3.11 -y
 
 FROM build_2 AS build_3
-RUN echo "y" | /usr/local/miniconda3/bin/pip install torch
-
-FROM build_3 AS build_3-1
-RUN echo "y" | /usr/local/miniconda3/bin/pip install torchvision
-
-FROM build_3-1 AS build_3-2
-RUN echo "y" | /usr/local/miniconda3/bin/pip install torchaudio
-
-FROM build_3-2 AS build_3-3
-RUN echo "y" | /usr/local/miniconda3/bin/pip install torchsummary torcheval
-
-FROM build_3-3 AS build_3-4
-RUN echo "y" | /usr/local/miniconda3/bin/pip install pyspark grpcio grpcio-status
-
-FROM build_3-4 AS build_3-5
 RUN mkdir -p /usr/lib/spark/scripts/gpu/ && \
     cd /usr/lib/spark/scripts/gpu/ && \
     wget https://raw.githubusercontent.com/apache/spark/master/examples/src/main/scripts/getGpusResources.sh && \
     chmod a+rwx -R /usr/lib/spark/scripts/gpu/
 
-FROM build_3-5 AS build_4
+FROM build_3 AS build_4
 RUN tar -zxvf /usr/local/hadoop-3.4.1.tar.gz -C /usr/local/ && \
     tar -zxvf /usr/local/spark-4.0.1-bin-hadoop3-connect.tgz -C /usr/local/ && \
     tar -zxvf /usr/local/kafka_2.13-4.1.0.tgz -C /usr/local/ && \

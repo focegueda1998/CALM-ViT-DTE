@@ -52,10 +52,10 @@ spec:
        conda install matplotlib -y; \
        conda install scikit-learn -y; \
        conda install pyqt -y; \
-       echo \"y\"| pip install pyqt5; \
        conda install -c conda-forge kaggle -y; \
        conda install -c conda-forge pillow -y; \
        conda install -c conda-forge libxcb -y; \
+       echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark pyspark-connect pyspark[connect] scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib]; \
        mkdir -p /config/Codebase; \
        echo 'Reloading bashrc'; \
        . /root/.bashrc; \
