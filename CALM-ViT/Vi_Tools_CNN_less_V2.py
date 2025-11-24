@@ -81,6 +81,9 @@ class VMLA_Block(torch.nn.Module):
         norm_layer: Callable[..., torch.nn.Module] = partial(torch.nn.LayerNorm, eps=1e-6)
     ):
         super().__init__()
+        # Layer Scaling Parameters (As if there isn't a ton of learnable parameters already...)
+        self.ls_att = torch.nn.Parameter(1e-5 * torch.ones(dim2), requires_grad=True)
+        self.ls_mlp = torch.nn.Parameter(1e-5 * torch.ones(dim2), requires_grad=True) if use_mlp else None
         self.training = training
         self.heads = heads
         self.head_dim_content = dim2 // heads // 2
@@ -139,9 +142,9 @@ class VMLA_Block(torch.nn.Module):
             self.qr_proj = torch.nn.Linear(mean_var_hidden, self.head_dim_rope * self.heads, bias=False)
             self.kr_proj = torch.nn.Linear(dim1, self.head_dim_rope * self.heads, bias=False)
         self.linear_mask = torch.nn.Sequential(
-            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=False),
+            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True),
             torch.nn.GELU(approximate='none'),
-            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=False)
+            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True),
         )
         self.input_t_proj = None
         self.input_proj = None
@@ -258,10 +261,12 @@ class VMLA_Block(torch.nn.Module):
                 residual = residual.permute(0, 2, 1)
             if self.input_proj is not None:
                 residual = self.input_proj(residual)
-        x += residual
+        x = x * self.ls_att + residual
         if self.mlp is not None:
             y = self.ln_2(x)
             y = self.mlp(y)
+            if self.ls_mlp is not None:
+                y = y * self.ls_mlp
         return x + y if self.mlp is not None else self.ln_2(x)
 
 class Block(torch.nn.Module):
@@ -506,7 +511,7 @@ class Encoder_8(torch.nn.Module):
         seq_length_initial = seq_length
         dim1_initial = dim1
         for i in range(8):
-            step = i % 2 == 0
+            step = i == 2 or i == 5
             self.encoder_blocks.append(
                 Block(
                     heads=heads,

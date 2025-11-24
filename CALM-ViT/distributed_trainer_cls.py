@@ -16,7 +16,7 @@ from pyspark.ml.torch.distributor import TorchDistributor
 from torchvision.datasets import ImageNet
 from subprocess import call
 import torchvision
-import torchvision.transforms as transforms
+import torchvision.transforms.v2 as transforms
 from torchvision.transforms.functional import InterpolationMode
 import sys
 
@@ -33,7 +33,7 @@ def train(initializer, optimizer, scheduler,
     import time
     import torch.distributed as dist
     from torch.nn.parallel import DistributedDataParallel as DDP
-    from torch.utils.data import DataLoader, DistributedSampler
+    from torch.utils.data import DataLoader, DistributedSampler, default_collate
 
     print("Training on device", os.environ['RANK'])
 
@@ -54,7 +54,11 @@ def train(initializer, optimizer, scheduler,
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
     sampler = DistributedSampler(dataset, shuffle=True, seed=2006)
     sampler.set_epoch(0)
-    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+    cut_mix = transforms.CutMix(num_classes=1000, alpha=1.0)
+    mix_up = transforms.MixUp(num_classes=1000, alpha=0.8)
+    mix_both = transforms.RandomChoice([cut_mix, mix_up])
+    def collate_fn(batch): return mix_both(*default_collate(batch))
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
     criterion = torch.nn.CrossEntropyLoss()
     # criterion_mse = torch.nn.MSELoss()
     # criterion_kl = torch.nn.KLDivLoss(reduction='batchmean')
@@ -79,10 +83,13 @@ def train(initializer, optimizer, scheduler,
             y_hat = model(x)
             loss = criterion(y_hat.squeeze(), y)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             epoch_loss += loss.item()
+            # Determine accuracy for the DOMINANT class because I don't want to write code for mixup/cutmix soft accuracy
             _, predicted = torch.max(y_hat.data, 1)
-            correct = (predicted == y).sum().item()
+            _, y_labels = torch.max(y.data, 1)  
+            correct = (predicted == y_labels).sum().item()
             accuracy = correct / y.size(0)
             print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
         if global_rank == 0 and local_rank == 0:
@@ -109,28 +116,24 @@ if __name__ == "__main__":
                  force_reduce=False, generate=False)
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+    try:
+        model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True))
+        print("Loaded existing model weights from model_cls.pth")
+    except:
+        print("No existing model weights found, starting fresh training.")
     transform = transforms.Compose([
-        transforms.Resize((240, 240)),
+        transforms.Resize((256, 256)),
         transforms.RandomCrop((224, 224)),
-        transforms.ColorJitter(brightness=(0, 0.3), contrast=(0, 0.3), saturation=(0, 0.3), hue=(0, 0.1)),
-        transforms.RandomAffine(
-            degrees=(-1, 1),                 
-            translate=(0.1, 0.1),           
-            scale=(0.9, 1.1),              
-            shear=(0, 2),
-            interpolation=InterpolationMode.BILINEAR
-            ),
-        transforms.RandomVerticalFlip(),
+        transforms.ColorJitter(brightness=(0.5, 1), contrast=(0.5, 1), saturation=(0.5, 1), hue=(-0.125, 0.125)),
+        transforms.RandomSolarize(224),
         transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(degrees=5),
         transforms.RandomGrayscale(),
         transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
-        transforms.ToTensor(),
+        transforms.ToImage(), transforms.ToDtype(torch.float32, scale=True),
         transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-
-    opt = optim.AdamW(model.parameters(), lr=3.1e-5, weight_decay=0.02)
+    opt = optim.AdamW(model.parameters(), lr=3.1e-4, weight_decay=0.02)
     dataset = ImageNet(
         root="/dataset/imagenet/",
         split="train",
@@ -143,8 +146,8 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs=400,
-        batch_size=608
+        epochs=5,
+        batch_size=320
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
     print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")
