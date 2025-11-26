@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: datasets-pvc-2
+spec:
+  storageClassName: rook-cephfs-ucsd
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 500Gi

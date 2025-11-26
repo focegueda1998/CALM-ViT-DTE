@@ -28,8 +28,8 @@ class ViT(torch.nn.Module):
         self.seq_length = seq_length
         # We use two sets of positional embeddings, one for the encoder (row tokens) and one
         # for the decoder (columns).
-        self.pos_embeddings = [torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device), 
-                              torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device)]
+        # self.pos_embeddings = [torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device), 
+        #                       torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device)]
         if type == 8 and generate:
             self.autoencoder = vt.EncoderDecoder_8(
                 heads=heads,
@@ -69,14 +69,16 @@ class ViT(torch.nn.Module):
                 torch.nn.Linear(in_features * 2, in_features, bias=False).to(device)
             ).to(device)
     def forward(self, q):
-        x = self.autoencoder(q, [emb.clone() for emb in self.pos_embeddings])
         if not self.generate:
             # Average pool the sequence dimension
+            x = self.autoencoder(q)
             x = x.permute(0, 2, 1)
             x = self.pool(x).squeeze(-1)
             x = self.head(x)
         else:
+            x, kl_loss = self.autoencoder(q)
             x = self.head(x)
+            return x, kl_loss
         return x
 
 class ImageDataset(Dataset):
@@ -141,12 +143,12 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ViT(device, type=8, heads=12, seq_length=224, in_features=672,
                  dim_step=48, mean_var_hidden=224,
-                 seq_len_step=16, seq_len_reduce=96, out_features=1000,
-                 force_reduce=False, generate=False)
+                 seq_len_step=16, seq_len_reduce=96, out_features=672,
+                 force_reduce=False, generate=True)
     optimizer = optim.Adam(model.parameters(), lr=3.1e-3, weight_decay=0.02)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
-    criterion_mse = torch.nn.MSELoss()
+    criterion_mse = torch.nn.HuberLoss(delta=1.0)
     criterion_KL = torch.nn.KLDivLoss(reduction='batchmean')
     print(model)
 
@@ -175,7 +177,7 @@ if __name__ == '__main__':
     mix_up = transforms.MixUp(num_classes=1000, alpha=0.8)
     mix_both = transforms.RandomChoice([cut_mix, mix_up])
     def collate_fn(batch): return mix_both(*default_collate(batch))
-    dataloader = DataLoader(dataset, batch_size=320, shuffle=True, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=collate_fn)
     if split == "train":
         for epoch in range(5):
             model.train()
@@ -183,31 +185,31 @@ if __name__ == '__main__':
                 x = x.to(device)
                 y = y.to(device)
                 optimizer.zero_grad()
-                y_hat = model(x)
-                # img = y_hat.reshape(-1, 224, 224, 3)
-                # img = img.permute(0, 3, 1, 2)
-                loss_1 = criterion(y_hat.squeeze(), y) # The labels need to be floating point
-                # loss_2 = criterion_mse(img, x)
+                y_hat, kl_loss = model(x)
+                img = y_hat.reshape(-1, 224, 224, 3)
+                img = img.permute(0, 3, 1, 2)
+                # loss_1 = criterion(y_hat.squeeze(), y) # The labels need to be floating point
+                loss_2 = criterion_mse(img, x)
                 # img_flat = img.reshape(-1, 224 * 224 * 3)
                 # x_flat = x.reshape(-1, 224 * 224 * 3)
                 # img_log = torch.nn.functional.log_softmax(img_flat, dim=1)
                 # x_soft = torch.nn.functional.softmax(x_flat, dim=1)
                 # loss_3 = criterion_KL(img_log, x_soft)
-                loss = loss_1 # + loss_2 + loss_3
-                # loss = loss_2 + loss_3
+                # loss = loss_1 # + loss_2 + loss_3
+                loss = loss_2 + kl_loss
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
-                _, predicted = torch.max(y_hat.data, 1)
-                _, y_labels = torch.max(y.data, 1)  
-                correct = (predicted == y_labels).sum().item()
-                accuracy = correct / y.size(0)
-                print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Accuracy: {accuracy}")
-                # save_samples(img)
-                # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
-                # for name, param in model.named_parameters():
-                #     if param.grad is None:
-                #         print(f"- {name}")
+                # optimizer.step()
+                # _, predicted = torch.max(y_hat.data, 1)
+                # _, y_labels = torch.max(y.data, 1)  
+                # correct = (predicted == y_labels).sum().item()
+                # accuracy = correct / y.size(0)
+                # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Accuracy: {accuracy}")
+                save_samples(img)
+                print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+                for name, param in model.named_parameters():
+                    if param.grad is None:
+                        print(f"- {name}")
             scheduler.step()
     else:
         with torch.no_grad():

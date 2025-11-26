@@ -77,6 +77,7 @@ class VMLA_Block(torch.nn.Module):
         force_reduce: bool=True, # Force reduction even if input and output dims / seq lengths are the same (NOT RECOMMENDED; REQUIRES A LOT MORE PARAMETERS)
         dropout:float=0.0,
         use_mlp: bool=True,
+        is_cross: bool=False,
         training: bool=True,
         norm_layer: Callable[..., torch.nn.Module] = partial(torch.nn.LayerNorm, eps=1e-6)
     ):
@@ -95,7 +96,7 @@ class VMLA_Block(torch.nn.Module):
         self.reduce = dim1 != dim2 or force_reduce
         # Mean and Variance Bottleneck
         self.ln_q = norm_layer(dim1, bias=False)
-        self.ln_kv = norm_layer(dim1, bias=False)
+        self.ln_kv = norm_layer(dim1, bias=False) if is_cross else None
         self.t_encoder_q = None
         self.t_encoder_kv = None
         # Only apply token temporal reduction if seq_len_reduce is different from seq_length (or forced)
@@ -155,8 +156,8 @@ class VMLA_Block(torch.nn.Module):
         if dim1 != dim2:
             self.input_proj = torch.nn.Linear(dim1, dim2, bias=False)
         # Attention
-        self.rope_q = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
-        self.rope_k = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
+        self.rope_q = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=False)
+        self.rope_k = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=False)
         self.out_proj = torch.nn.Linear(dim2, dim2, bias=False)
         self.dropout = torch.nn.Dropout(dropout)
         self.ln_2 = norm_layer(dim2, bias=False)
@@ -169,17 +170,16 @@ class VMLA_Block(torch.nn.Module):
                 torch.nn.Linear(mlp_dim, dim2, bias=False),
             )
 
-    def forward(self, input_q, input_kv=None, embedding=None, state_manager=None, mask=False):
+    def forward(self, input_q, input_kv=None, state_manager=None, mask=False):
         # One-Shot Encoders
         residual = input_q
-        input_kv = input_q if input_kv is None else input_kv
-        xq = input_q
-        xkv = input_kv
-        xq = self.ln_q(xq)
-        xkv = self.ln_kv(xkv)
-        if embedding is not None:
-            xq = xq + embedding
-            xkv = xkv + embedding
+        if input_kv is None:
+            xq = self.ln_q(input_q)
+            xkv = xq
+        else:
+            xq = self.ln_q(input_q)
+            xkv = self.ln_kv(input_kv)
+         # Mean and Variance Bottleneck
         qz = xq
         kz = xkv
         vz = xkv
@@ -252,7 +252,7 @@ class VMLA_Block(torch.nn.Module):
             is_causal=False
         )
         x = x.transpose(1, 2).contiguous().view(batch_size, seq_len_q, self.heads * self.head_dim)
-        x = self.out_proj(x)
+        x = self.out_proj(x) * self.ls_att
         x = self.dropout(x)
         if residual.shape != x.shape:
             if self.input_t_proj is not None:
@@ -261,7 +261,7 @@ class VMLA_Block(torch.nn.Module):
                 residual = residual.permute(0, 2, 1)
             if self.input_proj is not None:
                 residual = self.input_proj(residual)
-        x = x * self.ls_att + residual
+        x = x + residual
         if self.mlp is not None:
             y = self.ln_2(x)
             y = self.mlp(y)
@@ -289,7 +289,6 @@ class Block(torch.nn.Module):
     ):
         super().__init__()
         self.is_first_block = is_first_block
-        self.ln_emb_row = norm_layer(dim1, bias=False) if not is_first_block else None
         self.encoder = VMLA_Block(
             heads=heads,
             dim1=dim1,
@@ -303,7 +302,6 @@ class Block(torch.nn.Module):
             training=training,
             use_mlp=True
         )
-        self.ln_emb_col = norm_layer(dim1, bias=False) if not is_first_block else None
         self.decoder = VMLA_Block(
             heads=heads,
             dim1=dim1,
@@ -327,43 +325,25 @@ class Block(torch.nn.Module):
             seq_len_new=seq_length + (seq_len_step * 3),
             mlp_dim=(dim1 + (dim_step * 3)) * 2,
             force_reduce=force_reduce,
+            is_cross=True,
             training=training,
             use_mlp=True
         )
-        self.seq_adjust_row = torch.nn.Linear(seq_length, seq_length + (seq_len_step * 3), bias=False) if seq_len_step != 0 and not is_last_block else None
-        self.seq_adjust_col = torch.nn.Linear(seq_length, seq_length + (seq_len_step * 3), bias=False) if seq_len_step != 0 and not is_last_block else None
-        self.dim_adjust_row = torch.nn.Linear(dim1, dim1 + (dim_step * 3), bias=False) if dim_step != 0 and not is_last_block else None
-        self.dim_adjust_col = torch.nn.Linear(dim1, dim1 + (dim_step * 3), bias=False) if dim_step != 0 and not is_last_block else None
 
-    def forward(self, x, embeddings: list, esm=None, dsm=None, csm=None, mask=True):
+    def forward(self, x, esm=None, dsm=None, csm=None, mask=True):
         xq = x
         if self.is_first_block:
             xq = xq.permute(0, 2, 3, 1)
             xq = xq.reshape(xq.shape[0], xq.shape[1], xq.shape[2] * xq.shape[3])
-            xq = xq + embeddings[0]
-        else:
-            embeddings[0] = self.ln_emb_row(embeddings[0])
-        xq = self.encoder(xq, embedding=embeddings[0] if not self.is_first_block else None, state_manager=esm, mask=mask)
+        xq = self.encoder(xq, state_manager=esm, mask=mask)
         xkv = xq
-        if self.is_first_block:
-            xkv = xkv + embeddings[1]
-        else:
-            embeddings[1] = self.ln_emb_col(embeddings[1])
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[1], 3).permute(0, 2, 1, 3)
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[2] * xkv.shape[3])
-        xkv = self.decoder(xkv, embedding=embeddings[1] if not self.is_first_block else None, state_manager=dsm, mask=mask)
+        xkv = self.decoder(xkv, state_manager=dsm, mask=mask)
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[1], 3).permute(0, 2, 1, 3)
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[2] * xkv.shape[3])
-        x = self.cross(xq, xkv, state_manager=csm, mask=mask)
-        if self.seq_adjust_row is not None:
-            embeddings[0] = self.seq_adjust_row(embeddings[0].permute(0, 2, 1)).permute(0, 2, 1)
-        if self.seq_adjust_col is not None:
-            embeddings[1] = self.seq_adjust_col(embeddings[1].permute(0, 2, 1)).permute(0, 2, 1)
-        if self.dim_adjust_row is not None:
-            embeddings[0] = self.dim_adjust_row(embeddings[0])
-        if self.dim_adjust_col is not None:
-            embeddings[1] = self.dim_adjust_col(embeddings[1])
-        return x, embeddings
+        x = self.cross(xq, input_kv=xkv, state_manager=csm, mask=mask)
+        return x
 
 # 8 total Encoder-Decoder Blocks, 24 attention layers, For Auto-Regressive Generation
 # Defaults are for 256x256x3 images.
@@ -455,38 +435,40 @@ class EncoderDecoder_8(torch.nn.Module):
             dim1 += (dim_step * 3)
             seq_length += (seq_len_step * 3)
         self.ln_final = norm_layer(dim1, bias=False)
-        self.ln_emb_row = norm_layer(dim1, bias=False)
 
-    def forward(self, x, embeddings):
+    def forward(self, x):
         esm = ResidualStateManager() if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
         dsm = ResidualStateManager() if self.force_reduce else None # Same for the decoder
         csm = ResidualStateManager() # the cross residual state manager will always be used
-        emb_row_init = embeddings[0]
         skip_1 = None
         skip_2 = None
         skip_bn_1 = None
         skip_bn_2 = None
         for i, block in enumerate(self.encoder_blocks):
-            x, embeddings = block(x, esm=esm, dsm=dsm, csm=csm, mask=True, embeddings=embeddings)
+            x = block(x, esm=esm, dsm=dsm, csm=csm, mask=True)
             if i == 0:
                 skip_1 = x
             elif i == 1:
                 skip_2 = x
             else:
                 skip_bn_1 = x
-        x, embeddings = self.block_bottle_neck_1(x, esm=esm, dsm=dsm, csm=csm, mask=True, embeddings=embeddings)
+        x = self.block_bottle_neck_1(x, esm=esm, dsm=dsm, csm=csm, mask=True)
         x += skip_bn_1
         skip_bn_2 = x
-        x, embeddings = self.block_bottle_neck_2(x, esm=esm, dsm=dsm, csm=csm, mask=True, embeddings=embeddings)
+        x = self.block_bottle_neck_2(x, esm=esm, dsm=dsm, csm=csm, mask=True)
         x += skip_bn_2 + skip_bn_1
         for i, block in enumerate(self.decoder_blocks):
-            x, embeddings = block(x, esm=esm, dsm=dsm, csm=csm, mask=True, embeddings=embeddings)
+            x = block(x, esm=esm, dsm=dsm, csm=csm, mask=True)
             if i == 0:
                 x += skip_2
             elif i == 1:
                 x += skip_1
-        x = self.ln_final(x) + self.ln_emb_row(emb_row_init)
-        return x
+        x = self.ln_final(x)
+        final_mean_zq, final_var_zq, final_mean_zkv, final_var_zkv = csm.mean_q_sum, csm.var_q_sum, csm.mean_kv_sum, csm.var_kv_sum
+        kl_q = -0.5 * torch.mean(1 + final_var_zq - final_mean_zq.pow(2) - torch.exp(final_var_zq))
+        kl_kv = -0.5 * torch.mean(1 + final_var_zkv - final_mean_zkv.pow(2) - torch.exp(final_var_zkv))
+        kl_loss = kl_kv + kl_q
+        return x, kl_loss
 
 # 8 Total Encoder-Decoder Blocks, 24 attention layers, For Classification, Defaults are for 224x224x3 images.
 # Encoder Only.
@@ -531,18 +513,12 @@ class Encoder_8(torch.nn.Module):
             dim1 -= (dim_step * 3) if step else 0
             seq_length -= (seq_len_step * 3) if step else 0
         self.ln_final = norm_layer(dim1, bias=False)
-        self.t_emb_proj = torch.nn.Linear(seq_length_initial, seq_length, bias=False)
-        self.emb_proj = torch.nn.Linear(dim1_initial, dim1, bias=False)
-        self.ln_emb_row = norm_layer(dim1, bias=False)
     
-    def forward(self, x, embeddings):
+    def forward(self, x):
         esm = ResidualStateManager() if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
         dsm = ResidualStateManager() if self.force_reduce else None # Same for the decoder
         csm = ResidualStateManager() # the cross residual state manager will always be used
-        emb_row_init = embeddings[0]
         for _, block in enumerate(self.encoder_blocks):
-            x, embeddings = block(x, esm=esm, dsm=dsm, csm=csm, mask=True, embeddings=embeddings)
-        x = self.ln_final(x) + self.ln_emb_row(
-            self.emb_proj(self.t_emb_proj(emb_row_init.permute(0, 2, 1)).permute(0, 2, 1))
-        )
+            x = block(x, esm=esm, dsm=dsm, csm=csm, mask=True)
+        x = self.ln_final(x)
         return x

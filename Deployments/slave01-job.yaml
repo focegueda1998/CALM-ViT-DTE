@@ -7,26 +7,38 @@ metadata:
 spec:
   template:
     spec:
-      restartPolicy: Never
       nodeSelector:
         topology.kubernetes.io/region: us-west
-        topology.kubernetes.io/zone: fullerton
+        topology.kubernetes.io/zone: ucsd-nrp
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                  - NVIDIA-A100-SXM4-80GB
       volumes:
       - name: config-volume
         persistentVolumeClaim:
           claimName: datasets-pvc
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: datasets-pvc-2
       containers:
       - name: slave01
-        image: "gitlab-registry.nrp-nautilus.io/focegueda/data-curator-and-model-dispatcher/sparktorchkafka:latest"
+        image: "gitlab-registry.nrp-nautilus.io/focegueda/calm-vit-dte/sparktorchkafka:latest"
         resources:
           limits:
-            memory: 72Gi
-            cpu: 24000m
-            nvidia.com/gpu: 6
+            memory: 64Gi
+            cpu: 32000m
+            nvidia.com/a100: 4
           requests:
-            memory: 72Gi
-            cpu: 24000m
-            nvidia.com/gpu: 6
+            memory: 64Gi
+            cpu: 32000m
+            nvidia.com/a100: 4
         ports:
         - containerPort: 8088
           hostPort: 8088
@@ -73,16 +85,19 @@ spec:
         - containerPort: 9093
           hostPort: 9093
           protocol: TCP
+        - containerPort: 22
+          hostPort: 22
+          protocol: TCP
         volumeMounts:
         - name: config-volume
           mountPath: /config
+        - name: data-volume
+          mountPath: /dataset
         command: ["bash", "-c"]
         args: [
           "
           echo '0' > /config/state; \
-          cat /config/spark-env.sh > /usr/local/spark/conf/spark-env.sh; \
-          cat /config/spark-defaults.conf > /usr/local/spark/conf/spark-defaults.conf; \
-          echo $(hostname -i)\t$(hostname) >> /config/ips_temp ;\
+          echo $(hostname -i)\t$(hostname) >> /config/ips_temp;\
           echo $(hostname) >> /config/workers_tmp; \
           apt-get install libxcb-xinerama0 -y; \
           apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
@@ -98,7 +113,7 @@ spec:
           conda install matplotlib -y; \
           conda install scikit-learn -y; \
           conda install pyqt -y; \
-          echo \"y\"| pip install pyqt5; \
+          echo \"y\"| pip install pyqt5 py4j memory-profiler pyspark scipy torch torchvision torchaudio torcheval deepspeed pyspark[sql] pyspark[pandas_on_spark] pyspark[ml] pyspark[mllib] matplotlib scikit-learn; \
           conda install -c conda-forge libxcb -y; \
           conda install -c conda-forge pillow -y; \
           echo \"y\" | pip install torchsummary; \

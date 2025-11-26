@@ -34,6 +34,7 @@ def train(initializer, optimizer, scheduler,
     import torch.distributed as dist
     from torch.nn.parallel import DistributedDataParallel as DDP
     from torch.utils.data import DataLoader, DistributedSampler, default_collate
+    from torch.amp import autocast, GradScaler
 
     print("Training on device", os.environ['RANK'])
 
@@ -48,7 +49,7 @@ def train(initializer, optimizer, scheduler,
     global_rank = int(os.environ['RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = torch.device(f"cuda:{local_rank}" if use_gpu else "cpu")
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=0)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
     model = initializer
     model = model.to(device)
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
@@ -60,6 +61,7 @@ def train(initializer, optimizer, scheduler,
     def collate_fn(batch): return mix_both(*default_collate(batch))
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
     criterion = torch.nn.CrossEntropyLoss()
+    scaler = GradScaler(enabled=use_gpu)
     # criterion_mse = torch.nn.MSELoss()
     # criterion_kl = torch.nn.KLDivLoss(reduction='batchmean')
     # attention_maps = None
@@ -80,11 +82,14 @@ def train(initializer, optimizer, scheduler,
             y = y.to(device)
             optimizer.zero_grad()
             # Compute classification and reconstruction loss on the batch
-            y_hat = model(x)
-            loss = criterion(y_hat.squeeze(), y)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            with autocast(device_type="cuda", enabled=use_gpu):
+                y_hat = model(x)
+                loss = criterion(y_hat.squeeze(), y)
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0, error_if_nonfinite=False)
+            scaler.step(optimizer)
+            scaler.update()
             epoch_loss += loss.item()
             # Determine accuracy for the DOMINANT class because I don't want to write code for mixup/cutmix soft accuracy
             _, predicted = torch.max(y_hat.data, 1)
@@ -111,9 +116,9 @@ if __name__ == "__main__":
     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
-                 dim_step=48, mean_var_hidden=160,
-                 seq_len_step=16, seq_len_reduce=96, out_features=1000,
-                 force_reduce=False, generate=False)
+                dim_step=48, mean_var_hidden=224,
+                seq_len_step=16, seq_len_reduce=128, out_features=1000,
+                force_reduce=False, generate=False)
     print(model)
     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
     try:
@@ -133,12 +138,62 @@ if __name__ == "__main__":
         transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    opt = optim.AdamW(model.parameters(), lr=3.1e-4, weight_decay=0.02)
     dataset = ImageNet(
         root="/dataset/imagenet/",
         split="train",
         transform=transform
     )
+    # opt = optim.AdamW(model.parameters(), lr=3.1e-5, weight_decay=0.02)
+    # model = distributor.run(
+    #     train,
+    #     model,
+    #     optimizer=opt,
+    #     scheduler=None,
+    #     use_gpu=True,
+    #     dataset=dataset,
+    #     epochs=1,
+    #     batch_size=360
+    # )
+    # torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
+    # torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_wrm1.pth")
+    # print(f"Model saved to {parent_dir}/Codebase/models/model_cls_wrm1.pth")
+    # distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
+    # model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
+    #             dim_step=48, mean_var_hidden=224,
+    #             seq_len_step=16, seq_len_reduce=128, out_features=1000,
+    #             force_reduce=False, generate=False)
+    # model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+    # try:
+    #     model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True))
+    #     print("Loaded existing model weights from model_cls.pth")
+    # except:
+    #     print("No existing model weights found, starting fresh training.")
+    # opt = optim.AdamW(model.parameters(), lr=3.1e-4, weight_decay=0.02)
+    # model = distributor.run(
+    #     train,
+    #     model,
+    #     optimizer=opt,
+    #     scheduler=None,
+    #     use_gpu=True,
+    #     dataset=dataset,
+    #     epochs=5,
+    #     batch_size=360
+    # )
+    # torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
+    # torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_wrm2.pth")
+    # print(f"Model saved to {parent_dir}/Codebase/models/model_cls_wrm2.pth")
+    # distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
+    # model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
+    #             dim_step=48, mean_var_hidden=224,
+    #             seq_len_step=16, seq_len_reduce=128, out_features=1000,
+    #             force_reduce=False, generate=False)
+    # model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+    # try:
+    #     model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True))
+    #     print("Loaded existing model weights from model_cls.pth")
+    # except:
+    #     print("No existing model weights found, starting fresh training.")
+    opt = optim.AdamW(model.parameters(), lr=5e-4, weight_decay=0.02)
     model = distributor.run(
         train,
         model,
@@ -146,11 +201,12 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs=5,
-        batch_size=320
+        epochs=400,
+        batch_size=512
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
-    print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_fnl.pth")
+    print(f"Model saved to {parent_dir}/Codebase/models/model_cls_fnl.pth")
     print(f"Time taken: {time() - start}")
     sleep(30)
     spark.stop()

@@ -7,6 +7,9 @@ metadata:
 spec:
   template:
     spec:
+      nodeSelector:
+        topology.kubernetes.io/region: us-west
+        topology.kubernetes.io/zone: ucsd-nrp
       restartPolicy: Never
       affinity:
         nodeAffinity:
@@ -21,6 +24,9 @@ spec:
       - name: config-volume
         persistentVolumeClaim:
           claimName: datasets-pvc
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: datasets-pvc-2
       containers:
       - name: solo-cls
         image: "gitlab-registry.nrp-nautilus.io/focegueda/calm-vit-dte/sparktorchkafka:latest"
@@ -82,6 +88,8 @@ spec:
         volumeMounts:
         - name: config-volume
           mountPath: /config
+        - name: data-volume
+          mountPath: /dataset
         command: ["bash", "-c"]
         args: [
           "
@@ -119,17 +127,9 @@ spec:
           fi; \
           chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
           ./usr/local/spark/sbin/start-all.sh --host $(hostname) --port 7077; \
-          mkdir -p dataset; \
-          cd dataset; \
-          mkdir -p imagenet; \
-          cd imagenet; \
           echo 'Cluster Started'; \
           sleep 15; \
           echo 'TRAINING'; \
-          cp /config/imagenet/ILSVRC2012_img_train.tar /dataset/imagenet; \
-          cp /config/imagenet/ILSVRC2012_img_val.tar /dataset/imagenet;\
-          cp /config/imagenet/ILSVRC2012_devkit_t12.tar.gz /dataset/imagenet; \
-          echo 'Dataset downloaded successfully.'; \
           bash /config/Codebase/train-cls.sh; \
           "
         ]
