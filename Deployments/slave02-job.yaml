@@ -24,16 +24,19 @@ spec:
       - name: config-volume
         persistentVolumeClaim:
           claimName: datasets-pvc
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: datasets-pvc-2
       containers:
       - name: slave02
         image: "gitlab-registry.nrp-nautilus.io/focegueda/calm-vit-dte/sparktorchkafka:latest"
         resources:
           limits:
-            memory: 36Gi
+            memory: 32Gi
             cpu: 16000m
             nvidia.com/a100: 2
           requests:
-            memory: 36Gi
+            memory: 32Gi
             cpu: 16000m
             nvidia.com/a100: 2
         ports:
@@ -88,12 +91,14 @@ spec:
         volumeMounts:
         - name: config-volume
           mountPath: /config
+        - name: data-volume
+          mountPath: /dataset
         command: ["bash", "-c"]
         args: [
           "
-          echo '0' > /config/state_2; \
-          echo $(hostname -i)\t$(hostname) >> /config/ips_temp_2;\
-          echo $(hostname) >> /config/workers_tmp_2; \
+          echo '0' > /config/state; \
+          echo $(hostname -i)\t$(hostname) >> /config/ips_temp;\
+          echo $(hostname) >> /config/workers_tmp; \
           apt-get install libxcb-xinerama0 -y; \
           apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 -y; \
           echo \"export QT_DEBUG_PLUGINS=1\" >> /root/.bashrc; \
@@ -124,14 +129,14 @@ spec:
           fi; \
           sleep 15; \
           echo 'Fetching node IPs and updating /etc/hosts'; \
-          cat /config/ips_temp_2 > /config/ips_2; \
-          cat /config/ips_2 >> /etc/hosts; \
-          cat /config/workers_tmp_2 > /usr/local/spark/conf/workers; \
+          cat /config/ips_temp > /config/ips; \
+          cat /config/ips >> /etc/hosts; \
+          cat /config/workers_tmp > /usr/local/spark/conf/workers; \
           chmod +x /opt/sparkRapidsPlugin/getGpusResources.sh; \
           echo 'Updated /etc/hosts'; \
           sleep 15; \
           echo 'Waiting for training to end.'; \
-          until grep -q '1' /config/state_2; do \
+          until grep -q '1' /config/state; do \
               sleep 5; \
           done;
           "

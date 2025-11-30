@@ -8,7 +8,7 @@ $SPARK_HOME/bin/spark-submit \
        --conf spark.driver.resource.gpu.amount=0 \
        --conf spark.driver.resource.gpu.discoveryScript=${SPARK_RAPIDS_DIR}/getGpusResources.sh \
        --conf spark.executor.memory=15G \
-       --conf spark.executor.instances=4 \
+       --conf spark.executor.instances=8 \
        --conf spark.executor.cores=6 \
        --conf spark.task.cpus=6 \
        --conf spark.files.overwrite=true \

@@ -5,20 +5,48 @@ from torch.nn import functional as F
 
 class ResidualStateManager():
     def __init__(
-        self
+        self,
+        smooth_factor: float = 2.0, # Ignored unless using exponential moving average
+        momentum: float = 0.9, # Ignored unless using static momentum
+        mode: str = "ema" # modes for "sma" (simple moving average), "ema" (exponential moving average), "lp" (later priority), and "sum" for raw summation. Any other value defaults to static momentum.
     ):
         super().__init__()
         self.mean_q_sum = None
         self.var_q_sum = None
         self.mean_kv_sum = None
         self.var_kv_sum = None
-        self.mask_sum = None
-    
+        self.count = 0
+        self.smooth_factor = smooth_factor
+        self.mode = mode
+        self.momentum = momentum
+
     def get_mean_var_sums(self, mean_q, var_q, mean_kv, var_kv):
-        self.mean_q_sum = mean_q if self.mean_q_sum is None else self.mean_q_sum + mean_q
-        self.var_q_sum = var_q if self.var_q_sum is None else self.var_q_sum + var_q
-        self.mean_kv_sum = mean_kv if self.mean_kv_sum is None else self.mean_kv_sum + mean_kv
-        self.var_kv_sum = var_kv if self.var_kv_sum is None else self.var_kv_sum + var_kv
+        if self.mean_q_sum is None:
+            self.mean_q_sum = mean_q
+            self.var_q_sum = var_q
+            self.mean_kv_sum = mean_kv
+            self.var_kv_sum = var_kv
+            self.count = 1
+        elif self.mode != "sum" and self.mode != "sma":
+            # Moving average instead of sum
+            self.count += 1
+            if self.mode == "ema": # Exponential Moving Average, early layers are weighted more
+                self.momentum = self.smooth_factor / (self.count + 1)
+            elif self.mode == "lp": # Later Priority, later layers are weighted more
+                self.momentum = self.count / (self.count + 1)
+            self.mean_q_sum = (1 - self.momentum) * self.mean_q_sum +  self.momentum * mean_q
+            self.var_q_sum = (1 - self.momentum) * self.var_q_sum + self.momentum * var_q
+            self.mean_kv_sum = (1 - self.momentum) * self.mean_kv_sum + self.momentum * mean_kv
+            self.var_kv_sum = (1 - self.momentum) * self.var_kv_sum + self.momentum * var_kv
+        else:
+            # Use out-of-place operations to avoid modifying views inplace
+            self.count += 1
+            self.mean_q_sum = self.mean_q_sum + mean_q
+            self.var_q_sum = self.var_q_sum + var_q
+            self.mean_kv_sum = self.mean_kv_sum + mean_kv
+            self.var_kv_sum = self.var_kv_sum + var_kv
+            if self.mode == "sma":
+                return self.mean_q_sum / self.count, self.var_q_sum / self.count, self.mean_kv_sum / self.count, self.var_kv_sum / self.count
         return self.mean_q_sum, self.var_q_sum, self.mean_kv_sum, self.var_kv_sum
 
 # Since our tokens are processed as sequences (row-wise, column-wise), we can apply RoPE as a 1D Embedding.
@@ -83,8 +111,8 @@ class VMLA_Block(torch.nn.Module):
     ):
         super().__init__()
         # Layer Scaling Parameters (As if there isn't a ton of learnable parameters already...)
-        self.ls_att = torch.nn.Parameter(1e-5 * torch.ones(dim2), requires_grad=True)
-        self.ls_mlp = torch.nn.Parameter(1e-5 * torch.ones(dim2), requires_grad=True) if use_mlp else None
+        self.ls_att = torch.nn.Parameter(torch.ones(dim2), requires_grad=True)
+        self.ls_mlp = torch.nn.Parameter(torch.ones(dim2), requires_grad=True) if use_mlp else None
         self.training = training
         self.heads = heads
         self.head_dim_content = dim2 // heads // 2
@@ -439,7 +467,7 @@ class EncoderDecoder_8(torch.nn.Module):
     def forward(self, x):
         esm = ResidualStateManager() if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
         dsm = ResidualStateManager() if self.force_reduce else None # Same for the decoder
-        csm = ResidualStateManager() # the cross residual state manager will always be used
+        csm = ResidualStateManager(mode="sma") # the cross residual state manager will always be used
         skip_1 = None
         skip_2 = None
         skip_bn_1 = None
@@ -469,6 +497,69 @@ class EncoderDecoder_8(torch.nn.Module):
         kl_kv = -0.5 * torch.mean(1 + final_var_zkv - final_mean_zkv.pow(2) - torch.exp(final_var_zkv))
         kl_loss = kl_kv + kl_q
         return x, kl_loss
+    
+class CALMLatentDiffusion(torch.nn.Module):
+    def __init__(
+        self,
+        heads: int=12,
+        dim1: int=672,
+        dim_step: int=48,
+        mean_var_hidden: int=204,
+        mean_var_hidden_diffusion: int=96,
+        seq_length: int=224,
+        seq_len_step: int=16,
+        seq_len_reduce:int=80,
+        seq_len_reduce_diffusion:int=32,
+        out_features_override: int = None, #Not used here, but useful for last block in encoder/decoder stacks
+        force_reduce: bool=False,
+        training: bool=True,
+        norm_layer: Callable[..., torch.nn.Module] = partial(torch.nn.LayerNorm, eps=1e-6)
+    ):
+        super().__init__()
+        self.force_reduce = force_reduce
+        # Encoder-Blocks
+        self.encoder_blocks = torch.nn.ModuleList()
+        for i in range(3):
+            self.encoder_blocks.append(
+                Block(
+                    heads=heads,
+                    dim1=dim1,
+                    dim_step=-dim_step,
+                    mean_var_hidden=mean_var_hidden,
+                    is_first_block=(i == 0),
+                    is_last_block=False,
+                    seq_length=seq_length,
+                    seq_len_step=-seq_len_step,
+                    seq_len_reduce=seq_len_reduce,
+                    out_features_override=None, # Not used here, but useful for last block in encoder/decoder stacks
+                    force_reduce=force_reduce,
+                    training=training
+                )
+            )
+            dim1 -= (dim_step * 3)
+            seq_length -= (seq_len_step * 3)
+        self.decoder_blocks = torch.nn.ModuleList()
+        for i in range(3):
+            self.decoder_blocks.append(
+                Block(
+                    heads=heads,
+                    dim1=dim1,
+                    dim_step=dim_step,
+                    mean_var_hidden=mean_var_hidden,
+                    is_first_block=False,
+                    is_last_block=(i == 2),
+                    seq_length=seq_length,
+                    seq_len_step=seq_len_step,
+                    seq_len_reduce=seq_len_reduce,
+                    out_features_override=out_features_override if i == 2 else None,
+                    force_reduce=force_reduce,
+                    training=training
+                )
+            )
+            dim1 += (dim_step * 3)
+            seq_length += (seq_len_step * 3)
+        self.ln_final = norm_layer(dim1, bias=False)
+
 
 # 8 Total Encoder-Decoder Blocks, 24 attention layers, For Classification, Defaults are for 224x224x3 images.
 # Encoder Only.
@@ -515,9 +606,10 @@ class Encoder_8(torch.nn.Module):
         self.ln_final = norm_layer(dim1, bias=False)
     
     def forward(self, x):
-        esm = ResidualStateManager() if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
-        dsm = ResidualStateManager() if self.force_reduce else None # Same for the decoder
-        csm = ResidualStateManager() # the cross residual state manager will always be used
+        # Do not use state managers for classification encoder, since each layer should learn independent representations.
+        esm = None
+        dsm = None
+        csm = None
         for _, block in enumerate(self.encoder_blocks):
             x = block(x, esm=esm, dsm=dsm, csm=csm, mask=True)
         x = self.ln_final(x)
