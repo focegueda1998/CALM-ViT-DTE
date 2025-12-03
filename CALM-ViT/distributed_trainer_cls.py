@@ -137,34 +137,34 @@ if __name__ == "__main__":
         transform=transform
     )
     lr = 0
-    for i in range(10):
-        lr += 3.1e-5
-        distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
-        model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
-                    dim_step=48, mean_var_hidden=224,
-                    seq_len_step=16, seq_len_reduce=128, out_features=1000,
-                    force_reduce=False, generate=False)
-        model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-        try:
-            model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True))
-            print("Loaded existing model weights from model_cls.pth")
-        except:
-            print("No existing model weights found, starting fresh training.")
-        opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02)
-        model = distributor.run(
-            train,
-            model,
-            optimizer=opt,
-            scheduler=None,
-            use_gpu=True,
-            dataset=dataset,
-            epochs=5,
-            batch_size=544
-        )
-        torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
-        torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_{i}.pth")
-        print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")
-        print(f"Model saved to {parent_dir}/Codebase/models/model_cls_{i}.pth")
+    # for i in range(10):
+    #     lr += 3.1e-5
+    #     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
+    #     model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
+    #                 dim_step=48, mean_var_hidden=224,
+    #                 seq_len_step=16, seq_len_reduce=128, out_features=1000,
+    #                 force_reduce=False, generate=False)
+    #     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+    #     try:
+    #         model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True))
+    #         print("Loaded existing model weights from model_cls.pth")
+    #     except:
+    #         print("No existing model weights found, starting fresh training.")
+    #     opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02)
+    #     model = distributor.run(
+    #         train,
+    #         model,
+    #         optimizer=opt,
+    #         scheduler=None,
+    #         use_gpu=True,
+    #         dataset=dataset,
+    #         epochs=5,
+    #         batch_size=544
+    #     )
+    #     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
+    #     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_{i}.pth")
+    #     print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")
+    #     print(f"Model saved to {parent_dir}/Codebase/models/model_cls_{i}.pth")
     for i in range(10):
         lr += 3.1e-4
         distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
@@ -174,7 +174,7 @@ if __name__ == "__main__":
                     force_reduce=False, generate=False)
         model = model.to("cuda" if torch.cuda.is_available() else "cpu")
         try:
-            model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True))
+            model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True), strict=False)
             print("Loaded existing model weights from model_cls.pth")
         except:
             print("No existing model weights found, starting fresh training.")
@@ -187,7 +187,7 @@ if __name__ == "__main__":
             use_gpu=True,
             dataset=dataset,
             epochs=5,
-            batch_size=544
+            batch_size=480
         )
         torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
         torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_{i + 10}.pth")

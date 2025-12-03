@@ -11,21 +11,21 @@ class ResidualStateManager():
         mode: str = "ema" # modes for "sma" (simple moving average), "ema" (exponential moving average), "lp" (later priority), and "sum" for raw summation. Any other value defaults to static momentum.
     ):
         super().__init__()
-        self.mean_q_sum = None
-        self.var_q_sum = None
-        self.mean_kv_sum = None
-        self.var_kv_sum = None
+        self.zq_sum = None
+        self.zkv_sum = None
+        self.tot_kl_loss = 0.0
         self.count = 0
         self.smooth_factor = smooth_factor
         self.mode = mode
         self.momentum = momentum
 
-    def get_mean_var_sums(self, mean_q, var_q, mean_kv, var_kv):
-        if self.mean_q_sum is None:
-            self.mean_q_sum = mean_q
-            self.var_q_sum = var_q
-            self.mean_kv_sum = mean_kv
-            self.var_kv_sum = var_kv
+    def get_sums(self, zq, zkv, mean_q, var_q, mean_kv, var_kv):
+        kl_q = -0.5 * torch.mean(1 + var_q - mean_q.pow(2) - torch.exp(var_q))
+        kl_kv = -0.5 * torch.mean(1 + var_kv - mean_kv.pow(2) - torch.exp(var_kv))
+        self.tot_kl_loss = kl_q + kl_kv + self.tot_kl_loss
+        if self.zq_sum is None:
+            self.zq_sum = zq
+            self.zkv_sum = zkv 
             self.count = 1
         elif self.mode != "sum" and self.mode != "sma":
             # Moving average instead of sum
@@ -34,26 +34,25 @@ class ResidualStateManager():
                 self.momentum = self.smooth_factor / (self.count + 1)
             elif self.mode == "lp": # Later Priority, later layers are weighted more
                 self.momentum = self.count / (self.count + 1)
-            self.mean_q_sum = (1 - self.momentum) * self.mean_q_sum +  self.momentum * mean_q
-            self.var_q_sum = (1 - self.momentum) * self.var_q_sum + self.momentum * var_q
-            self.mean_kv_sum = (1 - self.momentum) * self.mean_kv_sum + self.momentum * mean_kv
-            self.var_kv_sum = (1 - self.momentum) * self.var_kv_sum + self.momentum * var_kv
+            self.zq_sum = (self.momentum * zq) + ((1 - self.momentum) * self.zq_sum)
+            self.zkv_sum = (self.momentum * zkv) + ((1 - self.momentum) * self.zkv_sum)
         else:
             # Use out-of-place operations to avoid modifying views inplace
             self.count += 1
-            self.mean_q_sum = self.mean_q_sum + mean_q
-            self.var_q_sum = self.var_q_sum + var_q
-            self.mean_kv_sum = self.mean_kv_sum + mean_kv
-            self.var_kv_sum = self.var_kv_sum + var_kv
+            self.zq_sum = self.zq_sum + zq
+            self.zkv_sum = self.zkv_sum + zkv
             if self.mode == "sma":
-                return self.mean_q_sum / self.count, self.var_q_sum / self.count, self.mean_kv_sum / self.count, self.var_kv_sum / self.count
-        return self.mean_q_sum, self.var_q_sum, self.mean_kv_sum, self.var_kv_sum
+                return self.zq_sum / self.count, self.zkv_sum / self.count
+        return self.zq_sum, self.zkv_sum
+
+    def get_kl_loss(self):
+        return self.tot_kl_loss / self.count if self.count > 0 else 0.0
 
 # Since our tokens are processed as sequences (row-wise, column-wise), we can apply RoPE as a 1D Embedding.
 # I'm not sure if 2D would still be applicable in this case since tokens are not grid based. Using 1D should
 # be fine since the 2D spatial relationships are implied by the tokenization strategy (?).
 class RoPE(torch.nn.Module):
-    def __init__(self, seq: int, dim: int, theta: float=10000.0, learned: bool=False):
+    def __init__(self, seq: int, dim: int, theta: float=10000.0, learned: bool=False, training: bool=True):
         super().__init__()
         self.seq = seq
         self.dim = dim
@@ -68,9 +67,11 @@ class RoPE(torch.nn.Module):
         # cache the learned freqs as buffers to avoid recomputation, which I have not 
         # yet done :P.
         if learned:
-            self.freqs = torch.nn.Parameter(self.freqs, requires_grad=True)
+            self.inv_freq = torch.nn.Parameter(inv_freq, requires_grad=True)
+            self.register_buffer("t", t, persistent=False)
         else:
             self.register_buffer("inv_freq", inv_freq)
+            self.register_buffer("t", t, persistent=False)
             emb = torch.cat((self.freqs, self.freqs), dim=-1)
             self.register_buffer("cos_emb", emb.cos(), persistent=False)
             self.register_buffer("sin_emb", emb.sin(), persistent=False)
@@ -82,12 +83,14 @@ class RoPE(torch.nn.Module):
     
     def forward(self, x):       
         if self.learned:
+            t = self.t[:x.shape[2]].to(x.device)
+            self.freqs = torch.outer(t, self.inv_freq)
             emb = torch.cat((self.freqs, self.freqs), dim=-1)
             cos = emb.cos().unsqueeze(0).unsqueeze(0)
             sin = emb.sin().unsqueeze(0).unsqueeze(0)
         else:
-            cos = self.cos_emb[:self.seq, :].unsqueeze(0).unsqueeze(0)
-            sin = self.sin_emb[:self.seq, :].unsqueeze(0).unsqueeze(0)
+            cos = self.cos_emb[:x.shape[2], :].unsqueeze(0).unsqueeze(0)
+            sin = self.sin_emb[:x.shape[2], :].unsqueeze(0).unsqueeze(0)
         return (x * cos) + (self.rotate_half(x) * sin)
 
 # Multi-Head Latent Distribution Attention
@@ -103,6 +106,7 @@ class VMLA_Block(torch.nn.Module):
         seq_len_new:int,
         mlp_dim: int,
         force_reduce: bool=True, # Force reduction even if input and output dims / seq lengths are the same (NOT RECOMMENDED; REQUIRES A LOT MORE PARAMETERS)
+        t_force_reduce: bool=False,
         dropout:float=0.0,
         use_mlp: bool=True,
         is_cross: bool=False,
@@ -120,7 +124,7 @@ class VMLA_Block(torch.nn.Module):
         self.head_dim = self.head_dim_content + self.head_dim_rope
         #! This is ugly but I don't care :)
         # One-Shot Encoders
-        self.t_reduce = seq_len_new != seq_length or force_reduce
+        self.t_reduce = seq_len_new != seq_length or t_force_reduce
         self.reduce = dim1 != dim2 or force_reduce
         # Mean and Variance Bottleneck
         self.ln_q = norm_layer(dim1, bias=False)
@@ -170,11 +174,6 @@ class VMLA_Block(torch.nn.Module):
         if self.reduce:
             self.qr_proj = torch.nn.Linear(mean_var_hidden, self.head_dim_rope * self.heads, bias=False)
             self.kr_proj = torch.nn.Linear(dim1, self.head_dim_rope * self.heads, bias=False)
-        self.linear_mask = torch.nn.Sequential(
-            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True),
-            torch.nn.GELU(approximate='none'),
-            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True),
-        )
         self.input_t_proj = None
         self.input_proj = None
         # Dimension Adjustments, Do not force reduction here, we won't modify seq_length or dim1 unless necessary
@@ -184,8 +183,14 @@ class VMLA_Block(torch.nn.Module):
         if dim1 != dim2:
             self.input_proj = torch.nn.Linear(dim1, dim2, bias=False)
         # Attention
-        self.rope_q = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=False)
-        self.rope_k = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=False)
+        self.rope_q = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
+        self.rope_k = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
+        self.linear_mask = torch.nn.Sequential(
+            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True),
+            torch.nn.GELU(approximate='none'),
+            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True),
+            torch.nn.Tanh()
+        )
         self.out_proj = torch.nn.Linear(dim2, dim2, bias=False)
         self.dropout = torch.nn.Dropout(dropout)
         self.ln_2 = norm_layer(dim2, bias=False)
@@ -213,20 +218,18 @@ class VMLA_Block(torch.nn.Module):
         vz = xkv
         qr = xq
         kr = xkv
-        if self.t_reduce and self.reduce:
-            xq = xq.permute(0, 2, 1)
-            xkv = xkv.permute(0, 2, 1)
-            xq = self.t_encoder_q(xq)
-            xkv = self.t_encoder_kv(xkv)
-            xq = xq.permute(0, 2, 1)
-            xkv = xkv.permute(0, 2, 1)
+        if self.reduce:
+            if self.t_reduce:
+                xq = xq.permute(0, 2, 1)
+                xkv = xkv.permute(0, 2, 1)
+                xq = self.t_encoder_q(xq)
+                xkv = self.t_encoder_kv(xkv)
+                xq = xq.permute(0, 2, 1)
+                xkv = xkv.permute(0, 2, 1)
             mean_var_q = self.encoder_q(xq)
             mean_var_kv = self.encoder_kv(xkv)
             mean_zq, var_zq = mean_var_q.chunk(2, dim=-1)
             mean_zkv, var_zkv = mean_var_kv.chunk(2, dim=-1)
-            # Get residual states from state manager
-            if state_manager is not None:
-                mean_zq, var_zq, mean_zkv, var_zkv = state_manager.get_mean_var_sums(mean_zq, var_zq, mean_zkv, var_zkv)
             # Compute samples
             if self.training:
                 zq = mean_zq + torch.randn_like(var_zq) * torch.exp(0.5 * var_zq)
@@ -234,26 +237,31 @@ class VMLA_Block(torch.nn.Module):
             else:
                 zq = mean_zq
                 zkv = mean_zkv
+            if state_manager is not None:
+                zq, zkv = state_manager.get_sums(zq, zkv, mean_zq, var_zq, mean_zkv, var_zkv)
             qr = zq
-            qz = zq.permute(0, 2, 1)
-            qz = self.t_qz_upsample(qz)
-            qz = qz.permute(0, 2, 1)
-            zkv = zkv.permute(0, 2, 1)
-            kz = self.t_kz_upsample(zkv)
-            kz = kz.permute(0, 2, 1)
-            vz = self.t_vz_upsample(zkv)
-            vz = vz.permute(0, 2, 1)
-            qr = qr.permute(0, 2, 1)
-            qr = self.t_qr_proj(qr)
-            qr = qr.permute(0, 2, 1)
-            kr = kr.permute(0, 2, 1)
-            kr = self.t_kr_proj(kr)
-            kr = kr.permute(0, 2, 1)
+            qz = zq
+            kz = zkv
+            vz = zkv
+            if self.t_reduce:
+                qz = qz.permute(0, 2, 1)
+                qz = self.t_qz_upsample(qz)
+                qz = qz.permute(0, 2, 1)
+                kz = kz.permute(0, 2, 1)
+                kz = self.t_kz_upsample(kz)
+                kz = kz.permute(0, 2, 1)
+                vz = vz.permute(0, 2, 1)
+                vz = self.t_vz_upsample(vz)
+                vz = vz.permute(0, 2, 1)
+                qr = qr.permute(0, 2, 1)
+                qr = self.t_qr_proj(qr)
+                qr = qr.permute(0, 2, 1)
+                kr = kr.permute(0, 2, 1)
+                kr = self.t_kr_proj(kr)
+                kr = kr.permute(0, 2, 1)
         qz = self.q_proj(qz)
         kz = self.k_proj(kz)
         vz = self.v_proj(vz)
-        mask_mat = self.linear_mask(qz @ kz.permute(0, 2, 1)) if mask else None
-        mask_mat = mask_mat.unsqueeze(1)
         batch_size = qz.shape[0]
         seq_len_q = qz.shape[1]
         seq_len_kv = kz.shape[1]
@@ -272,6 +280,12 @@ class VMLA_Block(torch.nn.Module):
         else:
             q = self.rope_q(q)
             k = self.rope_k(k)
+        # Techichally we are computing QK^T twice here, once for attention and once for the mask,
+        # Inefficent but we want to leverage PyTorch's optimized scaled_dot_product_attention function.
+        q_mask = q.transpose(1, 2).contiguous().view(batch_size, seq_len_q, self.heads * self.head_dim)
+        k_mask = k.transpose(1, 2).contiguous().view(batch_size, seq_len_kv, self.heads * self.head_dim)
+        mask_mat = self.linear_mask(q_mask @ k_mask.permute(0, 2, 1)) if mask else None
+        mask_mat = mask_mat.unsqueeze(1)
         # Attention
         x = F.scaled_dot_product_attention(
             q, k, v,
@@ -465,9 +479,9 @@ class EncoderDecoder_8(torch.nn.Module):
         self.ln_final = norm_layer(dim1, bias=False)
 
     def forward(self, x):
-        esm = ResidualStateManager() if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
-        dsm = ResidualStateManager() if self.force_reduce else None # Same for the decoder
-        csm = ResidualStateManager(mode="sma") # the cross residual state manager will always be used
+        esm = ResidualStateManager(mode="sum") if self.force_reduce else None # The encoder residual state manager will never be used if the reduction mechanism is not forced
+        dsm = ResidualStateManager(mode="sum") if self.force_reduce else None # Same for the decoder
+        csm = ResidualStateManager(mode="sum") # the cross residual state manager will always be used
         skip_1 = None
         skip_2 = None
         skip_bn_1 = None
@@ -492,10 +506,15 @@ class EncoderDecoder_8(torch.nn.Module):
             elif i == 1:
                 x += skip_1
         x = self.ln_final(x)
-        final_mean_zq, final_var_zq, final_mean_zkv, final_var_zkv = csm.mean_q_sum, csm.var_q_sum, csm.mean_kv_sum, csm.var_kv_sum
-        kl_q = -0.5 * torch.mean(1 + final_var_zq - final_mean_zq.pow(2) - torch.exp(final_var_zq))
-        kl_kv = -0.5 * torch.mean(1 + final_var_zkv - final_mean_zkv.pow(2) - torch.exp(final_var_zkv))
-        kl_loss = kl_kv + kl_q
+        # final_mean_zq, final_var_zq, final_mean_zkv, final_var_zkv = csm.mean_q_sum, csm.var_q_sum, csm.mean_kv_sum, csm.var_kv_sum
+        # final_mean_zq = final_mean_zq
+        # final_var_zq = final_var_zq
+        # final_mean_zkv = final_mean_zkv
+        # final_var_zkv = final_var_zkv
+        # kl_q = -0.5 * torch.mean(1 + final_var_zq - final_mean_zq.pow(2) - torch.exp(final_var_zq))
+        # kl_kv = -0.5 * torch.mean(1 + final_var_zkv - final_mean_zkv.pow(2) - torch.exp(final_var_zkv))
+        kl_loss = csm.get_kl_loss()
+        kl_loss = esm.get_kl_loss() + dsm.get_kl_loss() + kl_loss if self.force_reduce else kl_loss
         return x, kl_loss
     
 class CALMLatentDiffusion(torch.nn.Module):
@@ -610,7 +629,13 @@ class Encoder_8(torch.nn.Module):
         esm = None
         dsm = None
         csm = None
-        for _, block in enumerate(self.encoder_blocks):
+        skip = None
+        for i, block in enumerate(self.encoder_blocks):
             x = block(x, esm=esm, dsm=dsm, csm=csm, mask=True)
+            if skip is None or x.shape != skip.shape:
+                skip = x
+            else:
+                x = x + skip
+                skip = x
         x = self.ln_final(x)
         return x

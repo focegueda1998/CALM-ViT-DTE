@@ -143,8 +143,9 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ViT(device, type=8, heads=12, seq_length=224, in_features=672,
                  dim_step=48, mean_var_hidden=224,
-                 seq_len_step=16, seq_len_reduce=96, out_features=672,
+                 seq_len_step=16, seq_len_reduce=128, out_features=672,
                  force_reduce=False, generate=True)
+    model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_reg.pth", map_location=device, weights_only=True), strict=False)
     optimizer = optim.Adam(model.parameters(), lr=3.1e-3, weight_decay=0.02)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
