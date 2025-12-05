@@ -6,6 +6,7 @@ import torch.optim as optim
 import random
 import matplotlib.pyplot as plt
 from PIL import Image
+from torch.nn.utils import spectral_norm as sn, remove_spectral_norm as rsn
 from torch.utils.data import Dataset, DataLoader, default_collate
 from torchvision.datasets import ImageNet
 from torch.optim.lr_scheduler import StepLR
@@ -30,7 +31,7 @@ class ViT(torch.nn.Module):
         # for the decoder (columns).
         # self.pos_embeddings = [torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device), 
         #                       torch.nn.Parameter(torch.randn(1, seq_length, in_features)).to(device)]
-        if type == 8 and generate:
+        if type == 8:
             self.autoencoder = vt.EncoderDecoder_8(
                 heads=heads,
                 dim1=in_features,
@@ -42,44 +43,31 @@ class ViT(torch.nn.Module):
                 out_features_override=None,
                 force_reduce=force_reduce
             ).to(device)
-        if type == 8 and not generate:
-            self.autoencoder = vt.Encoder_8(
-                heads=heads,
-                dim1=in_features,
-                dim_step=dim_step,
-                mean_var_hidden=mean_var_hidden,
-                seq_length=seq_length,
-                seq_len_step=seq_len_step,
-                seq_len_reduce=seq_len_reduce,
-                out_features_override=out_features,
-                force_reduce=force_reduce
-            ).to(device)
         if not generate:
             self.pool = torch.nn.AdaptiveAvgPool1d(1).to(device)
-            self.dim_final = in_features - (dim_step * 3 * 2)
             self.head = torch.nn.Sequential(
-                torch.nn.Linear(self.dim_final, in_features * 2, bias=False).to(device),
+                sn(torch.nn.Linear(in_features, in_features * 2, bias=False)).to(device),
                 torch.nn.GELU().to(device),
-                torch.nn.Linear(in_features * 2, out_features, bias=False).to(device)
+                sn(torch.nn.Linear(in_features * 2, out_features, bias=False)).to(device)
             ).to(device)
         else:
             self.head = torch.nn.Sequential(
-                torch.nn.Linear(in_features, in_features * 2, bias=False).to(device),
+                sn(torch.nn.Linear(in_features, in_features * 2, bias=False)).to(device),
                 torch.nn.GELU().to(device),
-                torch.nn.Linear(in_features * 2, in_features, bias=False).to(device)
+                sn(torch.nn.Linear(in_features * 2, in_features, bias=False)).to(device)
             ).to(device)
+    
     def forward(self, q):
         if not self.generate:
             # Average pool the sequence dimension
-            x = self.autoencoder(q)
+            x, kl_loss = self.autoencoder(q)
             x = x.permute(0, 2, 1)
             x = self.pool(x).squeeze(-1)
             x = self.head(x)
         else:
             x, kl_loss = self.autoencoder(q)
             x = self.head(x)
-            return x, kl_loss
-        return x
+        return x, kl_loss
 
 class ImageDataset(Dataset):
     def __init__(self, root_dir, csv_file, transform=None, split_ratio=0.8, train=True):

@@ -81,15 +81,24 @@ def train(initializer, optimizer, scheduler,
             x = x.to(device)
             y = y.to(device)
             # Compute classification and reconstruction loss on the batch
-            with autocast(device_type="cuda", enabled=use_gpu):
-                y_hat = model(x)
+            with autocast(device_type="cuda", enabled=use_gpu, dtype=torch.bfloat16) and torch.autograd.set_detect_anomaly(True):
+                y_hat, _ = model(x)
                 loss = criterion(y_hat.squeeze(), y)
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             # y_hat = model(x)
             # loss = criterion(y_hat.squeeze(), y)
             # loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.25, error_if_nonfinite=False)
+            grads = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1, error_if_nonfinite=False)
+            if torch.isinf(grads).any() or torch.isnan(grads).any() or torch.isneginf(grads).any():
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        if torch.isinf(param.grad).any() or torch.isnan(param.grad).any() or torch.isneginf(param.grad).any():
+                            print(f"Gradient issue found in {name} at Epoch {epoch}, Batch {i}")
+                    if torch.isinf(param).any() or torch.isnan(param).any() or torch.isneginf(param).any():
+                        print(f"Parameter issue found in {name} at Epoch {epoch}, Batch {i}")
+                print("Skipping optimizer step due to invalid gradients.")
+                raise ValueError("Invalid gradients detected.")
             scaler.step(optimizer)
             scaler.update()
             # optimizer.step()
@@ -119,6 +128,11 @@ if __name__ == "__main__":
     spark = SparkSession.builder.appName("CALM_ViT_Training").getOrCreate()
     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
+            dim_step=48, mean_var_hidden=240,
+            seq_len_step=16, seq_len_reduce=80, out_features=1000,
+            force_reduce=False, generate=False)
+    print(model)
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
         transforms.RandomCrop((224, 224)),
@@ -136,7 +150,6 @@ if __name__ == "__main__":
         split="train",
         transform=transform
     )
-    lr = 0
     # for i in range(10):
     #     lr += 3.1e-5
     #     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
@@ -165,12 +178,20 @@ if __name__ == "__main__":
     #     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_{i}.pth")
     #     print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")
     #     print(f"Model saved to {parent_dir}/Codebase/models/model_cls_{i}.pth")
-    for i in range(10):
-        lr += 3.1e-4
+    lr = 0
+    for i in range(11):
+        if i == 0:
+            lr = 3.1e-5
+            epochs = 2
+        elif i == 1:
+            lr = 3.1e-4
+            epochs = 3
+        else:
+            lr += 3.1e-4
         distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
         model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
-                    dim_step=48, mean_var_hidden=224,
-                    seq_len_step=16, seq_len_reduce=128, out_features=1000,
+                    dim_step=48, mean_var_hidden=240,
+                    seq_len_step=16, seq_len_reduce=80, out_features=1000,
                     force_reduce=False, generate=False)
         model = model.to("cuda" if torch.cuda.is_available() else "cpu")
         try:
@@ -178,7 +199,7 @@ if __name__ == "__main__":
             print("Loaded existing model weights from model_cls.pth")
         except:
             print("No existing model weights found, starting fresh training.")
-        opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02)
+        opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02, betas=(0.9, 0.98))
         model = distributor.run(
             train,
             model,
@@ -186,13 +207,13 @@ if __name__ == "__main__":
             scheduler=None,
             use_gpu=True,
             dataset=dataset,
-            epochs=5,
-            batch_size=480
+            epochs=epochs if i < 2 else 5,
+            batch_size=512
         )
         torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
-        torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_{i + 10}.pth")
+        torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_{i}.pth")
         print(f"Model saved to {parent_dir}/Codebase/models/model_cls.pth")
-        print(f"Model saved to {parent_dir}/Codebase/models/model_cls_{i + 10}.pth")
+        print(f"Model saved to {parent_dir}/Codebase/models/model_cls_{i}.pth")
     print(f"Model saved to {parent_dir}/Codebase/models/model_cls_fnl.pth")
     print(f"Time taken: {time() - start}")
     sleep(30)

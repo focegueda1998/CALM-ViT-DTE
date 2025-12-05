@@ -2,6 +2,7 @@ import torch
 from typing import Callable
 from functools import partial
 from torch.nn import functional as F
+from torch.nn.utils import spectral_norm as sn
 
 class ResidualStateManager():
     def __init__(
@@ -20,8 +21,8 @@ class ResidualStateManager():
         self.momentum = momentum
 
     def get_sums(self, zq, zkv, mean_q, var_q, mean_kv, var_kv):
-        kl_q = -0.5 * torch.mean(1 + var_q - mean_q.pow(2) - torch.exp(var_q))
-        kl_kv = -0.5 * torch.mean(1 + var_kv - mean_kv.pow(2) - torch.exp(var_kv))
+        kl_q = -0.5 * torch.mean(1 + 2 * torch.log(var_q) - mean_q.pow(2) - var_q.pow(2))
+        kl_kv = -0.5 * torch.mean(1 + 2 * torch.log(var_kv) - mean_kv.pow(2) - var_kv.pow(2))
         self.tot_kl_loss = kl_q + kl_kv + self.tot_kl_loss
         if self.zq_sum is None:
             self.zq_sum = zq
@@ -133,14 +134,14 @@ class VMLA_Block(torch.nn.Module):
         self.t_encoder_kv = None
         # Only apply token temporal reduction if seq_len_reduce is different from seq_length (or forced)
         if self.t_reduce:
-            self.t_encoder_q = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
-            self.t_encoder_kv = torch.nn.Linear(seq_length, seq_len_reduce, bias=False)
+            self.t_encoder_q = sn(torch.nn.Linear(seq_length, seq_len_reduce, bias=False))
+            self.t_encoder_kv = sn(torch.nn.Linear(seq_length, seq_len_reduce, bias=False))
         # Only compute the mean and variance projections if input and output dims differ
         self.encoder_q = None
         self.encoder_kv = None
         if self.reduce:
-            self.encoder_q = torch.nn.Linear(dim1, mean_var_hidden * 2, bias=False)
-            self.encoder_kv = torch.nn.Linear(dim1, mean_var_hidden * 2, bias=False)
+            self.encoder_q = sn(torch.nn.Linear(dim1, mean_var_hidden * 2, bias=False))
+            self.encoder_kv = sn(torch.nn.Linear(dim1, mean_var_hidden * 2, bias=False))
         # Decoders
         # Similarly, only apply token temporal upsampling if seq_len_reduce is different from seq_len_new
         self.t_qz_upsample = None
@@ -149,58 +150,58 @@ class VMLA_Block(torch.nn.Module):
         self.t_qr_proj = None
         self.t_kr_proj = None
         if self.t_reduce:
-            self.t_qz_upsample = torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False)
-            self.t_kz_upsample = torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False)
-            self.t_vz_upsample = torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False)
-            self.t_qr_proj = torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False)
-            self.t_kr_proj = torch.nn.Linear(seq_length, seq_len_new, bias=False)
+            self.t_qz_upsample = sn(torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False))
+            self.t_kz_upsample = sn(torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False))
+            self.t_vz_upsample = sn(torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False))
+            self.t_qr_proj = sn(torch.nn.Linear(seq_len_reduce, seq_len_new, bias=False))
+            self.t_kr_proj = sn(torch.nn.Linear(seq_length, seq_len_new, bias=False))
         # Only compute the upsample projections if input and output dims differ
         self.qz_upsample = None
         self.kz_upsample = None
         self.vz_upsample = None
         # Projections
-        self.q_proj = torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden,
+        self.q_proj = sn(torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden,
                                       (self.heads * self.head_dim_content) if self.reduce else (self.heads * self.head_dim),
-                                      bias=False
+                                      bias=False)
         )
-        self.k_proj = torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden,
+        self.k_proj = sn(torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden,
                                       (self.heads * self.head_dim_content) if self.reduce else (self.heads * self.head_dim),
-                                      bias=False
+                                      bias=False)
         )
-        self.v_proj = torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden, dim2, bias=False)
+        self.v_proj = sn(torch.nn.Linear(dim2 if dim1 == dim2 and not force_reduce else mean_var_hidden, dim2, bias=False))
         # Decoupled RoPE Projections as per Multi-Head Latent Attention Paper
         self.qr_proj = None
         self.kr_proj = None
         if self.reduce:
-            self.qr_proj = torch.nn.Linear(mean_var_hidden, self.head_dim_rope * self.heads, bias=False)
-            self.kr_proj = torch.nn.Linear(dim1, self.head_dim_rope * self.heads, bias=False)
+            self.qr_proj = sn(torch.nn.Linear(mean_var_hidden, self.head_dim_rope * self.heads, bias=False))
+            self.kr_proj = sn(torch.nn.Linear(dim1, self.head_dim_rope * self.heads, bias=False))
         self.input_t_proj = None
         self.input_proj = None
         # Dimension Adjustments, Do not force reduction here, we won't modify seq_length or dim1 unless necessary
         # This isn't optimal but closer to how residual connections are supposed to work.
         if seq_len_new != seq_length:
-            self.input_t_proj = torch.nn.Linear(seq_length, seq_len_new, bias=False)
+            self.input_t_proj = sn(torch.nn.Linear(seq_length, seq_len_new, bias=False))
         if dim1 != dim2:
-            self.input_proj = torch.nn.Linear(dim1, dim2, bias=False)
+            self.input_proj = sn(torch.nn.Linear(dim1, dim2, bias=False))
         # Attention
         self.rope_q = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
         self.rope_k = RoPE(seq_len_new, self.head_dim_rope if self.reduce else self.head_dim, learned=True)
         self.linear_mask = torch.nn.Sequential(
-            torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True),
+            sn(torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True)),
             torch.nn.GELU(approximate='none'),
-            torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True),
+            sn(torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True)),
             torch.nn.Tanh()
         )
-        self.out_proj = torch.nn.Linear(dim2, dim2, bias=False)
+        self.out_proj = sn(torch.nn.Linear(dim2, dim2, bias=False))
         self.dropout = torch.nn.Dropout(dropout)
         self.ln_2 = norm_layer(dim2, bias=False)
         self.mlp = None
         if use_mlp:
             self.mlp = torch.nn.Sequential(
-                torch.nn.Linear(dim2, mlp_dim, bias=False),
+                sn(torch.nn.Linear(dim2, mlp_dim, bias=False)),
                 torch.nn.GELU(approximate='none'),
                 torch.nn.Dropout(dropout, inplace=False),
-                torch.nn.Linear(mlp_dim, dim2, bias=False),
+                sn(torch.nn.Linear(mlp_dim, dim2, bias=False)),
             )
 
     def forward(self, input_q, input_kv=None, state_manager=None, mask=False):
@@ -228,12 +229,14 @@ class VMLA_Block(torch.nn.Module):
                 xkv = xkv.permute(0, 2, 1)
             mean_var_q = self.encoder_q(xq)
             mean_var_kv = self.encoder_kv(xkv)
-            mean_zq, var_zq = mean_var_q.chunk(2, dim=-1)
-            mean_zkv, var_zkv = mean_var_kv.chunk(2, dim=-1)
+            mean_zq, var_zq_raw = mean_var_q.chunk(2, dim=-1)
+            mean_zkv, var_zkv_raw = mean_var_kv.chunk(2, dim=-1)
+            var_zq = F.softplus(var_zq_raw) + 1e-6
+            var_zkv = F.softplus(var_zkv_raw) + 1e-6
             # Compute samples
             if self.training:
-                zq = mean_zq + torch.randn_like(var_zq) * torch.exp(0.5 * var_zq)
-                zkv = mean_zkv + torch.randn_like(var_zkv) * torch.exp(0.5 * var_zkv)
+                zq = mean_zq + torch.randn_like(var_zq) * var_zq
+                zkv = mean_zkv + torch.randn_like(var_zkv) * var_zkv
             else:
                 zq = mean_zq
                 zkv = mean_zkv
