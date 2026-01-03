@@ -13,6 +13,7 @@ from torch.optim.lr_scheduler import StepLR
 import csv
 from torchvision.transforms.functional import InterpolationMode
 from torchvision import models
+from torch.amp import autocast, GradScaler
 
 parent_dir = "/config"
 
@@ -51,11 +52,20 @@ class ViT(torch.nn.Module):
                 sn(torch.nn.Linear(in_features * 2, out_features, bias=False)).to(device)
             ).to(device)
         else:
-            self.head = torch.nn.Sequential(
-                sn(torch.nn.Linear(in_features, in_features * 2, bias=False)).to(device),
-                torch.nn.GELU().to(device),
-                sn(torch.nn.Linear(in_features * 2, in_features, bias=False)).to(device)
-            ).to(device)
+            # self.head = torch.nn.Sequential(
+            #     sn(torch.nn.Linear(in_features, in_features * 2, bias=False)).to(device),
+            #     torch.nn.GELU().to(device),
+            #     sn(torch.nn.Linear(in_features * 2, in_features, bias=False)).to(device),
+            # ).to(device)
+            hidden_channels = 32
+            self.proj = torch.nn.Sequential(
+                sn(torch.nn.Conv2d(3, hidden_channels, kernel_size=1, groups=1, bias=True)),
+                torch.nn.GELU(approximate='none'),
+                sn(torch.nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1, bias=True, groups=hidden_channels, padding_mode='zeros')),
+                torch.nn.GELU(approximate='none'),
+                sn(torch.nn.Conv2d(hidden_channels, 3, kernel_size=1, bias=True))
+            )
+
     
     def forward(self, q):
         if not self.generate:
@@ -66,7 +76,11 @@ class ViT(torch.nn.Module):
             x = self.head(x)
         else:
             x, kl_loss = self.autoencoder(q)
-            x = self.head(x)
+            # x = self.head(x)
+            x_img = self.proj(x.reshape(x.shape[0], x.shape[1], x.shape[1], 3).permute(0, 3, 1, 2))
+            x_img = x_img.permute(0, 2, 3, 1)
+            x_img = x_img.reshape(x_img.shape[0], x_img.shape[1], x_img.shape[2] * x_img.shape[3])
+            x = x + x_img
         return x, kl_loss
 
 class ImageDataset(Dataset):
@@ -130,10 +144,10 @@ def initialize_vit(device, weights: str="DEFAULT"):
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ViT(device, type=8, heads=12, seq_length=224, in_features=672,
-                 dim_step=48, mean_var_hidden=224,
-                 seq_len_step=16, seq_len_reduce=128, out_features=672,
-                 force_reduce=False, generate=True)
-    model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_reg.pth", map_location=device, weights_only=True), strict=False)
+                 dim_step=48, mean_var_hidden=240,
+                 seq_len_step=16, seq_len_reduce=80, out_features=1000,
+                 force_reduce=False, generate=False)
+    model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_cls.pth", map_location=device, weights_only=True), strict=False)
     optimizer = optim.Adam(model.parameters(), lr=3.1e-3, weight_decay=0.02)
     scheduler = StepLR(optimizer, step_size=5, gamma=0.1)
     criterion = torch.nn.CrossEntropyLoss()
@@ -166,39 +180,49 @@ if __name__ == '__main__':
     mix_up = transforms.MixUp(num_classes=1000, alpha=0.8)
     mix_both = transforms.RandomChoice([cut_mix, mix_up])
     def collate_fn(batch): return mix_both(*default_collate(batch))
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=496, shuffle=True, collate_fn=collate_fn)
+    scaler = GradScaler(enabled=True)
     if split == "train":
         for epoch in range(5):
             model.train()
             for i, (x, y) in enumerate(dataloader):
-                x = x.to(device)
-                y = y.to(device)
+                with autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
+                    x = x.to(device)
+                    y = y.to(device)
+                    y_hat, kl_loss = model(x)
+                    # img = y_hat.reshape(-1, 224, 224, 3)
+                    # img = img.permute(0, 3, 1, 2)
+                    loss_1 = criterion(y_hat.squeeze(), y) # The labels need to be floating point
+                    # loss_2 = criterion_mse(img, x)
+                    # img_flat = img.reshape(-1, 224 * 224 * 3)
+                    # x_flat = x.reshape(-1, 224 * 224 * 3)
+                    # img_log = torch.nn.functional.log_softmax(img_flat, dim=1)
+                    # x_soft = torch.nn.functional.softmax(x_flat, dim=1)
+                    # loss_3 = criterion_KL(img_log, x_soft)
+                    loss = loss_1 # + loss_2 + loss_3
+                    # loss = loss_2 + kl_loss
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                # y_hat = model(x)
+                # loss = criterion(y_hat.squeeze(), y)
+                # loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1, error_if_nonfinite=False)
+
+                scaler.step(optimizer)
+                scaler.update()
+                # optimizer.step()
                 optimizer.zero_grad()
-                y_hat, kl_loss = model(x)
-                img = y_hat.reshape(-1, 224, 224, 3)
-                img = img.permute(0, 3, 1, 2)
-                # loss_1 = criterion(y_hat.squeeze(), y) # The labels need to be floating point
-                loss_2 = criterion_mse(img, x)
-                # img_flat = img.reshape(-1, 224 * 224 * 3)
-                # x_flat = x.reshape(-1, 224 * 224 * 3)
-                # img_log = torch.nn.functional.log_softmax(img_flat, dim=1)
-                # x_soft = torch.nn.functional.softmax(x_flat, dim=1)
-                # loss_3 = criterion_KL(img_log, x_soft)
-                # loss = loss_1 # + loss_2 + loss_3
-                loss = loss_2 + kl_loss
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 # optimizer.step()
                 # _, predicted = torch.max(y_hat.data, 1)
                 # _, y_labels = torch.max(y.data, 1)  
                 # correct = (predicted == y_labels).sum().item()
                 # accuracy = correct / y.size(0)
                 # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}, Accuracy: {accuracy}")
-                save_samples(img)
-                print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
-                for name, param in model.named_parameters():
-                    if param.grad is None:
-                        print(f"- {name}")
+                # save_samples(img)
+                # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+                # for name, param in model.named_parameters():
+                #     if param.grad is None:
+                #         print(f"- {name}")
             scheduler.step()
     else:
         with torch.no_grad():

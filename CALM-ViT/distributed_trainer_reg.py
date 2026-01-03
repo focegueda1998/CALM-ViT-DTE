@@ -73,7 +73,7 @@ def train(initializer, optimizer, scheduler,
             x = x.to(device)
             y = y.to(device)
             # Compute classification and reconstruction loss on the batch
-            with autocast(device_type="cuda", enabled=use_gpu, dtype=torch.bfloat16) and torch.autograd.set_detect_anomaly(True):
+            with autocast(device_type="cuda", enabled=use_gpu, dtype=torch.bfloat16):
                 y_hat, kl_loss = model(x)
                 img = y_hat.reshape(-1, 224, 224, 3)
                 img = img.permute(0, 3, 1, 2)
@@ -88,17 +88,7 @@ def train(initializer, optimizer, scheduler,
                 loss = loss_2 + kl_loss * 0.1
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            grads = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1, error_if_nonfinite=False)
-            if torch.isinf(grads).any() or torch.isnan(grads).any() or torch.isneginf(grads).any():
-                for name, param in model.named_parameters():
-                    if param.grad is not None:
-                        if torch.isinf(param.grad).any() or torch.isnan(param.grad).any() or torch.isneginf(param.grad).any():
-                            print(f"Gradient issue found in {name} at Epoch {epoch}, Batch {i}")
-                    if torch.isinf(param).any() or torch.isnan(param).any() or torch.isneginf(param).any():
-                        print(f"Parameter issue found in {name} at Epoch {epoch}, Batch {i}")
-                print("Skipping optimizer step due to invalid gradients.")
-                raise ValueError("Invalid gradients detected.")
-
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1, error_if_nonfinite=False)
             # _, predicted = torch.max(y_hat.data, 1)
             # correct = (predicted == y).sum().item()
             # accuracy = correct / y.size(0)
@@ -144,69 +134,32 @@ if __name__ == "__main__":
         split="train",
         transform=transform
     )
-    lr = 0
-    # for i in range(10):
-    #     lr += 3.1e-5
-    #     distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
-    #     model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
-    #              dim_step=48, mean_var_hidden=224,
-    #              seq_len_step=16, seq_len_reduce=128, out_features=672,
-    #              force_reduce=False, generate=True)
-    #     model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-    #     try:
-    #         model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_reg.pth", map_location=device, weights_only=True), strict=False)
-    #         print("Loaded existing model weights from model_reg.pth")
-    #     except:
-    #         print("No existing model weights found, starting fresh training.")
-    #     opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02)
-    #     model = distributor.run(
-    #         train,
-    #         model,
-    #         optimizer=opt,
-    #         scheduler=None,
-    #         use_gpu=True,
-    #         dataset=dataset,
-    #         epochs=5,
-    #         batch_size=544
-    #     )
-    #     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg.pth")
-    #     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg_{i}.pth")
-    #     print(f"Model saved to {parent_dir}/Codebase/models/model_reg.pth")
-    #     print(f"Model saved to {parent_dir}/Codebase/models/model_reg_{i}.pth")
-    lr = 0
-    for i in range(11):
-        if i == 0:
-            lr = 3.1e-5
-        elif i == 1:
-            lr = 3.1e-4
-        else:
-            lr += 3.1e-4
-        distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
-        model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
-                    dim_step=48, mean_var_hidden=240,
-                    seq_len_step=16, seq_len_reduce=80, out_features=672,
-                    force_reduce=False, generate=True)
-        model = model.to("cuda" if torch.cuda.is_available() else "cpu")
-        try:
-            model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_reg.pth", map_location=device, weights_only=True), strict=False)
-            print("Loaded existing model weights from model_reg.pth")
-        except:
-            print("No existing model weights found, starting fresh training.")
-        opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02, betas=(0.9, 0.98))
-        model = distributor.run(
-            train,
-            model,
-            optimizer=opt,
-            scheduler=None,
-            use_gpu=True,
-            dataset=dataset,
-            epochs=5,
-            batch_size=512
-        )
-        torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg.pth")
-        torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg_{i}.pth")
-        print(f"Model saved to {parent_dir}/Codebase/models/model_reg.pth")
-        print(f"Model saved to {parent_dir}/Codebase/models/model_reg_{i}.pth")
+    lr = 3.1e-3
+    distributor = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True)
+    model = rvh.ViT(device, type=8, heads=12, seq_length=224, in_features=672,
+                dim_step=48, mean_var_hidden=240,
+                seq_len_step=16, seq_len_reduce=80, out_features=672,
+                force_reduce=False, generate=True)
+    model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+    try:
+        model.load_state_dict(torch.load(f"{parent_dir}/Codebase/models/model_reg.pth", map_location=device, weights_only=True), strict=False)
+        print("Loaded existing model weights from model_reg.pth")
+    except:
+        print("No existing model weights found, starting fresh training.")
+    opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.02, betas=(0.9, 0.98))
+    model = distributor.run(
+        train,
+        model,
+        optimizer=opt,
+        scheduler=None,
+        use_gpu=True,
+        dataset=dataset,
+        epochs= 255,
+        batch_size=452
+    )
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg.pth")
+    torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg_fnl.pth")
+    print(f"Model saved to {parent_dir}/Codebase/models/model_reg.pth")
     print(f"Model saved to {parent_dir}/Codebase/models/model_reg_fnl.pth")
     print(f"Time taken: {time() - start}")
     sleep(30)

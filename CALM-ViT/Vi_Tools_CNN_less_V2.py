@@ -190,7 +190,7 @@ class VMLA_Block(torch.nn.Module):
             sn(torch.nn.Linear(seq_len_new, seq_len_new * 2, bias=True)),
             torch.nn.GELU(approximate='none'),
             sn(torch.nn.Linear(seq_len_new * 2, seq_len_new, bias=True)),
-            torch.nn.Tanh()
+            # torch.nn.Tanh()
         )
         self.out_proj = sn(torch.nn.Linear(dim2, dim2, bias=False))
         self.dropout = torch.nn.Dropout(dropout)
@@ -374,6 +374,15 @@ class Block(torch.nn.Module):
             training=training,
             use_mlp=True
         )
+        #  we CNN now
+        hidden_channels = 32
+        self.proj = torch.nn.Sequential(
+            sn(torch.nn.Conv2d(3, hidden_channels, kernel_size=1, groups=1, bias=True)),
+            torch.nn.GELU(approximate='none'),
+            sn(torch.nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1, bias=True, groups=hidden_channels, padding_mode='zeros')),
+            torch.nn.GELU(approximate='none'),
+            sn(torch.nn.Conv2d(hidden_channels, 3, kernel_size=1, bias=True))
+        )
 
     def forward(self, x, esm=None, dsm=None, csm=None, mask=True):
         xq = x
@@ -388,7 +397,10 @@ class Block(torch.nn.Module):
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[1], 3).permute(0, 2, 1, 3)
         xkv = xkv.reshape(xkv.shape[0], xkv.shape[1], xkv.shape[2] * xkv.shape[3])
         x = self.cross(xq, input_kv=xkv, state_manager=csm, mask=mask)
-        return x
+        x_img = self.proj(x.reshape(x.shape[0], x.shape[1], x.shape[1], 3).permute(0, 3, 1, 2))
+        x_img = x_img.permute(0, 2, 3, 1)
+        x_img = x_img.reshape(x_img.shape[0], x_img.shape[1], x_img.shape[2] * x_img.shape[3])
+        return x + x_img
 
 # 8 total Encoder-Decoder Blocks, 24 attention layers, For Auto-Regressive Generation
 # Defaults are for 256x256x3 images.
