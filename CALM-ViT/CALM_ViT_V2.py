@@ -180,7 +180,7 @@ if __name__ == '__main__':
     mix_up = transforms.MixUp(num_classes=1000, alpha=0.8)
     mix_both = transforms.RandomChoice([cut_mix, mix_up])
     def collate_fn(batch): return mix_both(*default_collate(batch))
-    dataloader = DataLoader(dataset, batch_size=496, shuffle=True, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=100, num_workers=1, collate_fn=collate_fn, pin_memory=True, persistent_workers=True)
     scaler = GradScaler(enabled=True)
     if split == "train":
         for epoch in range(5):

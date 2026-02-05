@@ -55,7 +55,7 @@ def train(initializer, optimizer, scheduler,
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
     sampler = DistributedSampler(dataset, shuffle=True, seed=2006)
     sampler.set_epoch(0)
-    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, num_workers=5, pin_memory=True, persistent_workers=True)
     criterion_huber = nn.HuberLoss(delta=1.0)
     scaler = GradScaler(device="cuda",enabled=use_gpu)
     # attention_maps = None
@@ -96,7 +96,8 @@ def train(initializer, optimizer, scheduler,
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
-            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}")
+            if global_rank == 0 and local_rank == 0 and i % 100 == 0:
+                print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}")
         if global_rank == 0 and local_rank == 0:
             torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_reg.pth")
             rvh.save_samples(img)
@@ -154,8 +155,8 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs= 255,
-        batch_size=452
+        epochs= ,
+        batch_size=456
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg.pth")
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_reg_fnl.pth")

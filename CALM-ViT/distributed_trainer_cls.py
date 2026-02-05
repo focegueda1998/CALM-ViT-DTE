@@ -59,7 +59,7 @@ def train(initializer, optimizer, scheduler,
     mix_up = transforms.MixUp(num_classes=1000, alpha=0.8)
     mix_both = transforms.RandomChoice([cut_mix, mix_up])
     def collate_fn(batch): return mix_both(*default_collate(batch))
-    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn, num_workers=5, pin_memory=True, persistent_workers=True)
     criterion = torch.nn.CrossEntropyLoss()
     scaler = GradScaler(enabled=use_gpu)
     # criterion_mse = torch.nn.MSELoss()
@@ -100,7 +100,8 @@ def train(initializer, optimizer, scheduler,
             _, y_labels = torch.max(y.data, 1)  
             correct = (predicted == y_labels).sum().item()
             accuracy = correct / y.size(0)
-            print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
+            if global_rank == 0 and local_rank == 0 and i % 100 == 0:
+                print(f"Epoch: {epoch + 1}, Batch: {i + 1}, Device: [{global_rank}, {local_rank}], Loss: {loss}, Accuracy: {accuracy * 100:.4f}%")
         if global_rank == 0 and local_rank == 0:
             torch.save(model.module.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
             print("Model saved to models/model_cls.pth")
@@ -162,8 +163,8 @@ if __name__ == "__main__":
         scheduler=None,
         use_gpu=True,
         dataset=dataset,
-        epochs=235,
-        batch_size=488
+        epochs= 65,
+        batch_size=484
     )
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls.pth")
     torch.save(model.state_dict(), f"{parent_dir}/Codebase/models/model_cls_fnl.pth")

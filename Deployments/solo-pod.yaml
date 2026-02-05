@@ -26,12 +26,12 @@ spec:
     image: "gitlab-registry.nrp-nautilus.io/focegueda/calm-vit-dte/sparktorchkafka:latest"
     resources:
       limits:
-        memory: 16Gi
-        cpu: 8000m
+        memory: 32Gi
+        cpu: 16000m
         nvidia.com/a100: 1
       requests:
-        memory: 16Gi
-        cpu: 8000m
+        memory: 32Gi
+        cpu: 16000m
         nvidia.com/a100: 1
     volumeMounts:
     - name: config-volume
